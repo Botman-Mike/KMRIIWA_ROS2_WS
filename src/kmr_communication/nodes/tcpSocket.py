@@ -20,6 +20,7 @@ import time
 import os
 import rclpy
 import socket
+import logging
 
 
 def cl_black(msge): return '\033[30m' + msge + '\033[0m'
@@ -40,110 +41,187 @@ def cl_lightcyan(msge): return '\033[96m' + msge + '\033[0m'
 
 
 class TCPSocket:
-    def __init__(self, ip, port,node):
+    def __init__(self, ip, port, node):
         self.BUFFER_SIZE = 4000
         self.isconnected = False
         self.node_name = node
         self.ip = ip
         self.port = port
         self.tcp = None
+        self.connection = None
+        self.connection_lock = threading.Lock()
+        self.max_reconnection_attempts = 5
+        self.reconnection_delay = 2  # seconds
+        self.last_heartbeat = time.time()
+        self.heartbeat_timeout = 10  # seconds
+        self.running = True
 
-        #Data
+        # Data
         self.odometry = []
         self.laserScanB1 = []
         self.laserScanB4 = []
         self.kmp_statusdata = None
         self.lbr_statusdata = None
         self.lbr_sensordata = []
+        self.is_lbr_moving = False
 
-        threading.Thread(target=self.connect_to_socket).start()
+        # Start the connection thread
+        threading.Thread(target=self.connect_to_socket, daemon=True).start()
+        # Start the heartbeat monitor
+        threading.Thread(target=self.monitor_heartbeat, daemon=True).start()
 
     def close(self):
+        self.running = False
         self.isconnected = False
+        try:
+            if self.connection:
+                self.connection.shutdown(socket.SHUT_RDWR)
+                self.connection.close()
+            if self.tcp:
+                self.tcp.close()
+        except Exception as e:
+            print(cl_red(f"Error closing socket: {e}"))
+
+    def monitor_heartbeat(self):
+        """Monitor connection health and attempt reconnection if needed"""
+        while self.running:
+            if self.isconnected and (time.time() - self.last_heartbeat) > self.heartbeat_timeout:
+                print(cl_yellow(f"Heartbeat timeout for {self.node_name}. Attempting to reconnect..."))
+                with self.connection_lock:
+                    self.isconnected = False
+                    try:
+                        if self.connection:
+                            self.connection.close()
+                        if self.tcp:
+                            self.tcp.close()
+                    except:
+                        pass
+            time.sleep(1)
 
     def connect_to_socket(self):
-        print(cl_cyan('Starting up node:'), self.node_name, 'IP:', self.ip, 'Port:', self.port)
-        try:
-            self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_address= (self.ip,self.port)
-            self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
-            self.tcp.bind(server_address)
-        except:
-           print(cl_red('Error: ') + "Connection for KUKA cannot assign requested address:", self.ip, self.port)
+        """Connect to socket with retry mechanism"""
+        attempt = 0
 
-        self.tcp.listen(3)
-        while (not self.isconnected):
+        while self.running:
             try:
-                self.connection, client_address = self.tcp.accept()
-                self.tcp.settimeout(0.01)
-                self.isconnected = True
-            except:
-                t=0
-        time.sleep(1) 
+                print(cl_cyan(f'Starting up node: {self.node_name}, IP: {self.ip}, Port: {self.port}'))
+                self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                server_address = (self.ip, self.port)
+                self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self.tcp.bind(server_address)
+                self.tcp.listen(3)
 
-        count = 0
-        while self.isconnected:
-            try:
-                last_read_time = time.time()  # Keep received time
-                data = self.recvmsg()
-                for pack in (data.decode("utf-8")).split(">"):  # parsing data pack
-                    cmd_splt = pack.split()
-                    if len(cmd_splt) and cmd_splt[0] == 'odometry':
-                        self.odometry = cmd_splt
-                        #print('odom')
-                    if len(cmd_splt) and cmd_splt[0] == 'laserScan':
-                        if cmd_splt[2] == '1801':
-                            self.laserScanB1.append(cmd_splt)
-                            #print(count)
-                            count = count + 1
+                with self.connection_lock:
+                    self.connection, client_address = self.tcp.accept()
+                    self.tcp.settimeout(0.5)  # Increased timeout for better stability
+                    self.isconnected = True
+                    self.last_heartbeat = time.time()
 
-                        elif cmd_splt[2] == '1802':
-                            self.laserScanB4.append(cmd_splt)
-                            count = count + 1
-                    if len(cmd_splt) and cmd_splt[0] == 'kmp_statusdata':
-                        self.kmp_statusdata = cmd_splt
-                    if len(cmd_splt) and cmd_splt[0] == 'lbr_statusdata':
-                        self.lbr_statusdata = cmd_splt
-                    if len(cmd_splt) and cmd_splt[0] == 'lbr_sensordata':
-                        self.lbr_sensordata.append(cmd_splt)
+                print(cl_green(f'Connected to client at {client_address}'))
+                attempt = 0  # Reset attempt counter on successful connection
+                time.sleep(1)
 
-            except:
-                t = 0
+                # Main data processing loop
+                while self.isconnected and self.running:
+                    try:
+                        self.last_heartbeat = time.time()  # Update heartbeat on successful data processing
+                        data = self.recvmsg()
+                        if not data:  # Empty data can indicate connection closed
+                            raise socket.error("Connection closed by remote host")
 
+                        for pack in (data.decode("utf-8")).split(">"):
+                            cmd_splt = pack.split()
+                            if len(cmd_splt) and cmd_splt[0] == 'odometry':
+                                self.odometry = cmd_splt
+                            if len(cmd_splt) and cmd_splt[0] == 'laserScan':
+                                if cmd_splt[2] == '1801':
+                                    self.laserScanB1.append(cmd_splt)
+                                elif cmd_splt[2] == '1802':
+                                    self.laserScanB4.append(cmd_splt)
+                            if len(cmd_splt) and cmd_splt[0] == 'kmp_statusdata':
+                                self.kmp_statusdata = cmd_splt
+                            if len(cmd_splt) and cmd_splt[0] == 'lbr_statusdata':
+                                self.lbr_statusdata = cmd_splt
+                            if len(cmd_splt) and cmd_splt[0] == 'lbr_sensordata':
+                                self.lbr_sensordata.append(cmd_splt)
+                    except socket.timeout:
+                        # Socket timeout is not an error, just continue
+                        continue
+                    except Exception as e:
+                        print(cl_yellow(f"Error processing data: {e}"))
+                        with self.connection_lock:
+                            self.isconnected = False
+                        break
 
-        print("SHUTTING DOWN")
-        self.connection.shutdown(socket.SHUT_RDWR)
-        self.connection.close()
-        self.tcp.close()
-        self.isconnected = False
-        print(cl_lightred('Connection is closed!'))
-        rclpy.shutdown()
+            except Exception as e:
+                attempt += 1
+                print(cl_red(f'Connection attempt {attempt} failed: {e}'))
+                if attempt >= self.max_reconnection_attempts:
+                    print(cl_red(f'Maximum reconnection attempts reached. Waiting longer...'))
+                    time.sleep(self.reconnection_delay * 5)
+                    attempt = 0  # Reset counter but keep trying
+                else:
+                    time.sleep(self.reconnection_delay)
 
+                try:
+                    if self.tcp:
+                        self.tcp.close()
+                except:
+                    pass
+
+            # If we get here, connection has been lost, try to clean up
+            print(cl_yellow(f"Connection lost, cleaning up..."))
+            with self.connection_lock:
+                try:
+                    if self.connection:
+                        self.connection.close()
+                    if self.tcp:
+                        self.tcp.close()
+                except Exception as ex:
+                    print(cl_red(f"Error during cleanup: {ex}"))
+
+            if not self.running:
+                break
+
+            print(cl_yellow(f"Attempting to reconnect in {self.reconnection_delay} seconds..."))
+            time.sleep(self.reconnection_delay)
 
     def send(self, cmd):
+        """Thread-safe send command"""
+        if not self.isconnected:
+            print(cl_yellow(f"Cannot send command, not connected"))
+            return False
+
         try:
-            self.connection.sendall((cmd + '\r\n').encode("UTF-8"))
-        except:
-            print(cl_red('Error: ') + "sending message thread failed")
+            with self.connection_lock:
+                if self.isconnected and self.connection:
+                    self.connection.sendall((cmd + '\r\n').encode("UTF-8"))
+                    return True
+                return False
+        except Exception as e:
+            print(cl_red(f'Error sending message: {e}'))
+            with self.connection_lock:
+                self.isconnected = False
+            return False
 
     def recvmsg(self):
         header_len = 10
-        msglength=0
+        msglength = 0
 
         byt_len = ""
         byt_len = self.connection.recv(header_len)
         diff_header = header_len - len(byt_len)
-        while (diff_header > 0):
+        while diff_header > 0:
             byt_len.extend(self.connection.recv(diff_header))
-            diff_header= header_len-len(byt_len)
+            diff_header = header_len - len(byt_len)
 
-        msglength = int(byt_len.decode("utf-8")) + 1   #include crocodile and space
+        msglength = int(byt_len.decode("utf-8")) + 1  # include crocodile and space
         msg = ""
 
-        if(msglength>0 and msglength<5000):
+        if msglength > 0 and msglength < 5000:
             msg = self.connection.recv(msglength)
             diff_msg = msglength - len(msg)
-            while(diff_msg>0):
+            while diff_msg > 0:
                 newmsg = self.connection.recv(diff_msg)
                 msg.extend(newmsg)
                 diff_msg = msglength - len(msg)
