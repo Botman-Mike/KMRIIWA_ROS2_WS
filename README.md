@@ -131,7 +131,7 @@ You should now be able to see the map appear as you move the robot.
 To navigate the robot around the map you just made, simply add the saved map to the launch file of kmr_navigation2. 
 Connect the robot using 
 ```
-$ ros2 launch kmr_communications sunrise_communication.launch.py
+$ ros2 launch kmr_communication sunrise_communication.launch.py
 ```
 Start the laser concatenator by running
 ```
