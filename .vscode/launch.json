@@ -1,0 +1,74 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        
+
+        {
+            "name": "ROS: Simulation Gazebo",
+            "type": "ros",
+            "request": "launch",
+            "target": "${workspaceFolder}/src/kmr_simulation/launch/gazebo.launch.py",
+            "env": {
+                "DISPLAY": ":1",
+                "GAZEBO_GUI": "true",
+                "GZ_GUI": "1",
+                "PATH": "${env:PATH}" // added to ensure gazebo is found
+            }
+        },
+        {
+            "name": "ROS: Real KMR Communication",
+            "type": "ros",
+            "request": "launch",
+            "target": "${workspaceFolder}/src/kmr_communications/launch/sunrise_communication.launch.py"
+        },
+        {
+            "name": "ROS: State Publisher",
+            "type": "ros",
+            "request": "launch",
+            "target": "${workspaceFolder}/src/kmr_bringup/launch/state_publisher.launch.py"
+        },
+        {
+            "name": "ROS: Scan Concatenator",
+            "type": "ros",
+            "request": "launch",
+            "target": "${workspaceFolder}/src/kmr_concatenator/launch/concatenator.launch.py"
+        },
+        {
+            "name": "ROS: SLAM Simulation",
+            "request": "launch",
+            "target": "${workspaceFolder}/src/kmr_slam_toolbox/launch/gazebo_online_async_launch.py",
+            "type": "ros",
+            "env": {
+                "DISPLAY": ":1",
+                "GAZEBO_GUI": "true"
+            }
+        },
+        {
+            "name": "ROS: SLAM Real KMR",
+            "type": "ros",
+            "request": "launch",
+            "target": "${workspaceFolder}/src/kmr_slam_toolbox/launch/KMR_online_async_launch.launch.py"
+        },
+        {
+            "name": "ROS: RViz",
+            "type": "ros",
+            "request": "launch",
+            "target": "${workspaceFolder}/src/kmr_bringup/launch/rviz.launch.py"
+        },
+        {
+            "name": "ROS: Navigation2",
+            "type": "ros",
+            "request": "launch",
+            "target": "${workspaceFolder}/src/kmr_navigation2/launch/navigation2.launch.py"
+        },
+        {
+            "name": "ROS: Keyboard Control",
+            "type": "ros",
+            "request": "launch",
+            "target": "kmr_navigation2 twist_keyboard.py"
+        }
+    ]
+}

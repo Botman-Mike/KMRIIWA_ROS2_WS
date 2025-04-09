@@ -1,0 +1,11 @@
+# Goal
+trajectory_msgs/JointTrajectory path
+
+---
+# Result
+bool success
+string error
+
+---
+# Feedback
+# No data

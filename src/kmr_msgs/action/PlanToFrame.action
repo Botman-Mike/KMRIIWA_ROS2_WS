@@ -1,0 +1,12 @@
+# Goal
+string frame
+geometry_msgs/PoseStamped pose
+
+---
+# Result
+bool success
+trajectory_msgs/JointTrajectory path
+string error
+
+---
+# Feedback

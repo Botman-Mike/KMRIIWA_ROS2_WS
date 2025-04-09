@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+
+# Copyright 2019 Nina Marie Wahl and Charlotte Heggem.
+# Copyright 2019 Norwegian University of Science and Technology.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import _thread as thread
+import time
+import sys
+import numpy as np
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from geometry_msgs.msg import Point, Pose, Quaternion, Twist
+from builtin_interfaces.msg import Time
+from rclpy.qos import qos_profile_sensor_data
+from rclpy.action import ActionServer, CancelResponse, GoalResponse
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
+from kmr_msgs.action import ObjectSearch
+from pipeline_srv_msgs.srv import PipelineSrv
+from pipeline_srv_msgs.msg import PipelineRequest
+from object_analytics_msgs.msg import ObjectsInBoxes3D
+from object_analytics_msgs.msg import ObjectInBox3D
+from object_msgs.msg import ObjectInBox
+from object_msgs.msg import ObjectsInBoxes
+from geometry_msgs.msg import Point32
+from geometry_msgs.msg import PoseStamped
+
+
+
+def cl_red(msge): return '\033[31m' + msge + '\033[0m'
+
+class ObjectDetectionNode(Node):
+    def __init__(self):
+        super().__init__('object_detection_node')
+        self.name='object_detection_node'
+        self.detection_threshold = 0.5
+        self.detected_object_pose = None
+        self.isSearching = False
+
+        self.pipelinename = "object"
+        self.callback_group = ReentrantCallbackGroup() 
+
+        self.object_detection_action_server = ActionServer(
+            self,
+            ObjectSearch,
+            'object_search',
+            execute_callback=self.object_search_callback,
+            callback_group=self.callback_group,
+            goal_callback=self.goal_callback,
+            cancel_callback=self.cancel_callback
+        )
+
+        self.client = self.create_client(PipelineSrv, '/openvino_toolkit/pipeline_service')
+        self.request = PipelineSrv.Request()
+
+
+        while not self.client.wait_for_service(timeout_sec=10.0):
+           self.get_logger().info('Waiting for service')
+
+        self.create_subscription(
+            ObjectsInBoxes3D, 
+            '/object_analytics/localization', 
+            self.detectedObject_callback, 
+            qos_profile_sensor_data, 
+            callback_group=self.callback_group
+        )
+
+        self.last_instance = None
+
+    def goal_callback(self, goal_request):
+        """Accept or reject a client request to begin an action."""
+        self.get_logger().info('Received goal request')
+        return GoalResponse.ACCEPT
+
+    def cancel_callback(self, goal_handle):
+        """Accept or reject a client request to cancel an action."""
+        self.get_logger().info('Received cancel request')
+        return CancelResponse.ACCEPT
+
+    def detectedObject_callback(self, ObjectsInBoxes):
+        probability=0
+        for instance in ObjectsInBoxes.objects_in_boxes:
+            probability = instance.object.probability
+            self.last_instance= instance
+        if(self.last_instance != None and self.isSearching):
+            if(self.last_instance.object.probability>=self.detection_threshold):
+                self.detected_object_pose = self.getBoundingBoxMidPoint(self.last_instance.min, self.last_instance.max)
+                print("OBJECT DETECTED")
+                self.endSearch()
+
+    async def object_search_callback(self, goal_handle):
+        self.startSearch()
+        starttime = time.time()
+        self.get_logger().info('Executing goal...')
+        elapsed = 0
+        while (self.isSearching and elapsed<20):
+            elapsed = time.time() - starttime
+            # Add a small sleep to prevent CPU hogging
+            await rclpy.task.sleep(0.1)
+        
+        print("done searching")
+        if self.isSearching:
+           self.endSearch()
+           
+        result = ObjectSearch.Result()
+        result.success = False  # Initialize with a default value
+        
+        if self.detected_object_pose != None:
+            result.success = True
+            result.pose = self.detected_object_pose
+            self.detected_object_pose = None
+        
+        goal_handle.succeed()    
+        return result
+
+    def startSearch(self):
+        self.isSearching = True
+        #self.send_pipeline_request("RUN_PIPELINE")
+
+    def endSearch(self):
+        self.isSearching = False
+        #self.send_pipeline_request("PAUSE_PIPELINE")
+
+    def getBoundingBoxMidPoint(self,min,max):
+        midpoint = PoseStamped()
+        midpoint.pose.position.x = min.x - (min.x-max.x)/2
+        midpoint.pose.position.y = min.y - (min.y-max.y)/2
+        midpoint.pose.position.z = min.z - (min.z-max.z)/2
+        midpoint.pose.orientation.x = 0.0 
+        midpoint.pose.orientation.y = 0.0 
+        midpoint.pose.orientation.z = 0.7372773  
+        midpoint.pose.orientation.w = 0.6755902  
+        midpoint.header.frame_id = "camera_color_optical_frame"
+        return midpoint
+
+    async def send_pipeline_request(self, msg):
+        self.request.pipeline_request.cmd = msg
+        self.request.pipeline_request.value = self.pipelinename
+        future = self.client.call_async(self.request)
+        
+        # In Humble, proper awaiting of futures is recommended
+        await future
+        
+        try:
+            response = future.result()
+            if response:
+                self.get_logger().info('Request complete with response')
+            else:
+                self.get_logger().info('Request failed')
+        except Exception as e:
+            self.get_logger().error(f'Service call failed: {e}')
+
+def main(args=None):
+    rclpy.init(args=args)
+    object_detection_node = ObjectDetectionNode()
+    executor = MultiThreadedExecutor()
+    executor.add_node(object_detection_node)
+    
+    try:
+        executor.spin()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        executor.shutdown()
+        object_detection_node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()

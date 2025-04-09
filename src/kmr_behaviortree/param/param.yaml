@@ -1,0 +1,28 @@
+behavior_tree_node:
+  ros__parameters:
+    use_sim_time: false
+    goal_list: 
+    - WS3
+    - WS2
+    - HOME
+    WS1:
+        position: [-0.45, -4.29]
+        orientation: -1.6700057
+    WS2:
+        position: [4.22, -0.17]
+        orientation: -0.1
+
+    WS3:
+        position: [2.69, 0.28]
+        orientation: 1.6133431
+    HOME: 
+        position: [-0.284, 0.034]
+        orientation: -0.029
+    plugin_lib_names:
+    - move_gripper_action_bt_node
+    - move_manipulator_action_bt_node
+    - plan_manipulator_path_action_bt_node
+    - object_search_action_bt_node
+    - empty_frame_condition_bt_node
+    - navigate_vehicle_bt_node
+

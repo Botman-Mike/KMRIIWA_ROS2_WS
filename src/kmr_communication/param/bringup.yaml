@@ -1,0 +1,48 @@
+kmp_statusdata_node:
+  ros__parameters:
+
+    port: 30001
+    KMR1/ip: '172.31.1.206'
+    KMR2/ip: "172.31.1.206"
+
+kmp_commands_node:
+  ros__parameters:
+
+    port: 30002
+    KMR1/ip: '172.31.1.206'
+    KMR2/ip: '172.31.1.206'
+
+kmp_laserscan_node:
+  ros__parameters:
+
+    port: 30003
+    KMR1/ip: '172.31.1.206'
+    KMR2/ip: '172.31.1.206'
+
+kmp_odometry_node:
+  ros__parameters:
+
+    port: 30004
+    KMR1/ip: '172.31.1.206'
+    KMR2/ip: '172.31.1.206'
+
+lbr_commands_node:
+  ros__parameters:
+
+    port: 30005
+    KMR1/ip: '172.31.1.206'
+    KMR2/ip: '172.31.1.206'
+
+lbr_statusdata_node:
+  ros__parameters:
+
+    port: 30006
+    KMR1/ip: '172.31.1.206'
+    KMR2/ip: '172.31.1.206'
+
+lbr_sensordata_node:
+  ros__parameters:
+
+    port: 30007
+    KMR1/ip: '172.31.1.206'
+    KMR2/ip: '172.31.1.206'

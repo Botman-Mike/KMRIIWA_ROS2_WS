@@ -1,0 +1,44 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_manipulator/local/lib/python3.10/dist-packages",
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_navigation2/local/lib/python3.10/dist-packages",
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_communication/local/lib/python3.10/dist-packages",
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_msgs/local/lib/python3.10/dist-packages",
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_concatenator/local/lib/python3.10/dist-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_manipulator/local/lib/python3.10/dist-packages",
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_navigation2/local/lib/python3.10/dist-packages",
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_communication/local/lib/python3.10/dist-packages",
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_msgs/local/lib/python3.10/dist-packages",
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_concatenator/local/lib/python3.10/dist-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ],
+    "ros.distro": "humble",
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.jdt.ls.java.home": "/usr/lib/jvm/java-8-openjdk-amd64",
+    "java.project.sourcePaths": [
+        "src"
+    ],
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-1.8",
+            "path": "/usr/lib/jvm/java-8-openjdk-amd64",
+            "default": true
+        }
+    ],
+    "colcon.provideTasks": true,
+    "colcon.workspaceDirectory": "/home/ros2-control/kmriiwa_ws_devel",
+    "colcon.sourceDirectory": "src",
+
+    "colcon.defaultBuildConfiguration": "RelWithDebInfo",
+    "colcon.globalArguments": [
+        "--symlink-install",
+        "--event-handlers", "console_cohesion+",
+        "--packages-skip-build-finished",
+        "--paths", "/home/ros2-control/kmriiwa_ws_devel/src"
+    ]
+}

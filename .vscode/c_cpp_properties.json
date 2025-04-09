@@ -1,0 +1,26 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_behaviortree/include/**",
+        "/home/ros2-control/kmriiwa_ws_devel/install/kmr_msgs/include/**",
+        "/opt/ros/humble/include/**",
+        "/home/ros2-control/kmriiwa_ws_devel/src/kmr_behaviortree/include/**",
+        "/home/ros2-control/kmriiwa_ws_devel/src/object_analytics_msgs/include/**",
+        "/home/ros2-control/kmriiwa_ws_devel/src/object_msgs/include/**",
+        "/home/ros2-control/kmriiwa_ws_devel/src/pipeline_srv_msgs/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++17"
+    }
+  ],
+  "version": 4
+}

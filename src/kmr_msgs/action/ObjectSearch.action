@@ -1,0 +1,12 @@
+# Goal
+# No data
+
+---
+# Result
+bool success
+geometry_msgs/PoseStamped pose
+string error
+
+---
+# Feedback
+# No data

@@ -1,0 +1,23 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    fake_joint_trajectory_controller:
+      type: fake_components/GenericSystem
+
+fake_joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - joint_a1
+      - joint_a2
+      - joint_a3
+      - joint_a4
+      - joint_a5
+      - joint_a6
+      - joint_a7
+    interface_name: position
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
