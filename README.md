@@ -84,7 +84,7 @@ You should now see the robot visualized in Gazebo.
 
 If you wish to use a real KMR, run
 ```
-$ ros2 launch kmr_communications sunrise_communication.launch.py
+$ ros2 launch kmr_communication sunrise_communication.launch.py
 ```
 Now run the KMRiiwaSunriseApplication.java application on the KMR. 
 It's a requirement that you have both the computer running ROS2 and the KMR connected to the same access point and have the correct IP address of your computer configured in both the kmr_communications package and java application on the KMR.
@@ -111,7 +111,7 @@ By again running `ros2 topic list`, you should now see /pc_concatenated and /sca
 
 To create maps using SLAM and the simulated KMR, run
 ```
-$ ros2 launch kmr_slam_toolbox gazebo_online_async_launch.launch.py
+$ ros2 launch kmr_slam_toolbox gazebo_online_async_launch.py
 ```
 If you are using the real KMR, run
 ```
