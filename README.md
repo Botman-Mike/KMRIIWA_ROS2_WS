@@ -2,7 +2,11 @@
 <img align="right" src="https://img.directindustry.com/images_di/photo-g/17587-12407502.webp" height="250"/>
 Forked from a repository for master thesis and specialization project in Robotics & Automation at NTNU (Fall 2019) by Charlotte Heggem and Nina Marie Wahl. 
 
-Now further developed during a specialization project in Robotics & Automation at NTNU (fall 2020) by Morten M. Dahl.
+Now further developed by Mike Wescott of Spirit Aerosystems for ROS 2 Humble.  
+
+This is still a work in progress.
+
+Use this repo on the command PC and use KMRIIWA_ROS2_JAVA as the Sunrise Workbench project on the KMR IIWA robot.
 
 **Intention:**
 This project aims to further develop the communication API between a KUKA KMR iiwa and ROS2. 
