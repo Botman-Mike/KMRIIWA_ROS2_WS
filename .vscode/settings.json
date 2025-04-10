@@ -40,5 +40,7 @@
         "--event-handlers", "console_cohesion+",
         "--packages-skip-build-finished",
         "--paths", "/home/ros2-control/kmriiwa_ws_devel/src"
-    ]
+    ],
+    "github.copilot.chat.agent.thinkingTool": true,
+    "github.copilot.chat.codesearch.enabled": true
 }

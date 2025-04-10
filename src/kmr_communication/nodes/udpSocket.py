@@ -134,28 +134,42 @@ class UDPSocket:
                         data, addr = self.udp.recvfrom(self.BUFFER_SIZE)
                         if data:
                             self.last_heartbeat = time.time()  # Update heartbeat on successful receive
-                            data_str = data.decode('utf-8')
                             
-                            # Process the received data
+                            # Try to decode as UTF-8, but handle binary data gracefully
                             try:
-                                cmd_splt = data_str.split(">")[1].split() if ">" in data_str else data_str.split()
+                                data_str = data.decode('utf-8')
                                 
-                                with self.data_lock:
-                                    if len(cmd_splt) and cmd_splt[0] == 'odometry':
-                                        self.odometry = cmd_splt
-                                    if len(cmd_splt) and cmd_splt[0] == 'laserScan':
-                                        if cmd_splt[2] == '1801':
-                                            self.laserScanB1.append(cmd_splt)
-                                        elif cmd_splt[2] == '1802':
-                                            self.laserScanB4.append(cmd_splt)
-                                    if len(cmd_splt) and cmd_splt[0] == 'kmp_statusdata':
-                                        self.kmp_statusdata = cmd_splt
-                                    if len(cmd_splt) and cmd_splt[0] == 'lbr_statusdata':
-                                        self.lbr_statusdata = cmd_splt
-                                    if len(cmd_splt) and cmd_splt[0] == 'lbr_sensordata':
-                                        self.lbr_sensordata.append(cmd_splt)
-                            except Exception as e:
-                                print(cl_yellow(f"Error processing data: {e}"))
+                                # Process the received data
+                                try:
+                                    # If it's just a heartbeat message, don't process further
+                                    if data_str.strip() in ["heartbeat", "ping", ""]:
+                                        continue
+                                        
+                                    cmd_splt = data_str.split(">")[1].split() if ">" in data_str else data_str.split()
+                                    
+                                    if not cmd_splt:  # Skip empty commands
+                                        continue
+                                        
+                                    with self.data_lock:
+                                        if cmd_splt[0] == 'odometry':
+                                            self.odometry = cmd_splt
+                                        elif cmd_splt[0] == 'laserScan':
+                                            if cmd_splt[2] == '1801':
+                                                self.laserScanB1.append(cmd_splt)
+                                            elif cmd_splt[2] == '1802':
+                                                self.laserScanB4.append(cmd_splt)
+                                        elif cmd_splt[0] == 'kmp_statusdata':
+                                            self.kmp_statusdata = cmd_splt
+                                        elif cmd_splt[0] == 'lbr_statusdata':
+                                            self.lbr_statusdata = cmd_splt
+                                        elif cmd_splt[0] == 'lbr_sensordata':
+                                            self.lbr_sensordata.append(cmd_splt)
+                                except Exception as e:
+                                    print(cl_yellow(f"Error processing command: {e}"))
+                                    # Don't break the connection for parsing errors
+                            except UnicodeDecodeError:
+                                # This is binary data, just use it as a heartbeat
+                                pass
                     except socket.timeout:
                         # Socket timeout is not an error, just continue
                         continue

@@ -84,18 +84,35 @@ class TCPSocket:
 
     def monitor_heartbeat(self):
         """Monitor connection health and attempt reconnection if needed"""
+        last_reported_status = True  # Track last reported connection status
+        
         while self.running:
-            if self.isconnected and (time.time() - self.last_heartbeat) > self.heartbeat_timeout:
-                print(cl_yellow(f"Heartbeat timeout for {self.node_name}. Attempting to reconnect..."))
-                with self.connection_lock:
-                    self.isconnected = False
-                    try:
-                        if self.connection:
-                            self.connection.close()
-                        if self.tcp:
-                            self.tcp.close()
-                    except:
-                        pass
+            # First check if we're connected before checking heartbeat
+            if self.isconnected:
+                if (time.time() - self.last_heartbeat) > self.heartbeat_timeout:
+                    print(cl_yellow(f"Heartbeat timeout for {self.node_name}. Attempting to reconnect..."))
+                    
+                    # Only report once when status changes
+                    if last_reported_status:
+                        print(cl_yellow(f"Connection lost for {self.node_name}"))
+                        last_reported_status = False
+                    
+                    # Mark as disconnected but let the main loop handle cleanup
+                    with self.connection_lock:
+                        self.isconnected = False
+                        
+                    # Don't try to close the socket here, let main thread handle it
+            else:
+                # Only report once when status changes
+                if last_reported_status:
+                    print(cl_yellow(f"Connection down for {self.node_name}"))
+                    last_reported_status = False
+                    
+            # If we reconnected, update status tracking
+            if not last_reported_status and self.isconnected:
+                print(cl_green(f"Connection restored for {self.node_name}"))
+                last_reported_status = True
+                
             time.sleep(1)
 
     def connect_to_socket(self):
@@ -124,10 +141,23 @@ class TCPSocket:
                 # Main data processing loop
                 while self.isconnected and self.running:
                     try:
-                        self.last_heartbeat = time.time()  # Update heartbeat on successful data processing
+                        self.last_heartbeat = time.time()
                         data = self.recvmsg()
-                        if not data:  # Empty data can indicate connection closed
+                        
+                        # Log the size of incoming data for debugging
+                        if data:
+                            print(f"Received data of size {len(data)} bytes from {self.node_name}")
+                        else:
                             raise socket.error("Connection closed by remote host")
+                        
+                        # Check if this is a heartbeat-only message
+                        try:
+                            data_str = data.decode("utf-8")
+                            if data_str.strip() in ["heartbeat", "ping", ""]:
+                                continue  # Skip processing for heartbeat messages
+                        except UnicodeDecodeError:
+                            # If it can't be decoded as text, just use it as a heartbeat
+                            continue
 
                         for pack in (data.decode("utf-8")).split(">"):
                             cmd_splt = pack.split()
@@ -153,6 +183,21 @@ class TCPSocket:
                             self.isconnected = False
                         break
 
+                print(cl_yellow(f"Connection lost, cleaning up..."))
+                with self.connection_lock:
+                    try:
+                        if self.connection:
+                            self.connection.close()
+                        if self.tcp:
+                            self.tcp.close()
+                    except Exception as ex:
+                        print(cl_red(f"Error during cleanup: {ex}"))
+
+                if not self.running:
+                    break
+
+                print(cl_yellow(f"Attempting to reconnect in {self.reconnection_delay} seconds..."))
+                time.sleep(self.reconnection_delay)
             except Exception as e:
                 attempt += 1
                 print(cl_red(f'Connection attempt {attempt} failed: {e}'))
@@ -162,29 +207,14 @@ class TCPSocket:
                     attempt = 0  # Reset counter but keep trying
                 else:
                     time.sleep(self.reconnection_delay)
-
+                
                 try:
                     if self.tcp:
                         self.tcp.close()
                 except:
                     pass
-
-            # If we get here, connection has been lost, try to clean up
-            print(cl_yellow(f"Connection lost, cleaning up..."))
-            with self.connection_lock:
-                try:
-                    if self.connection:
-                        self.connection.close()
-                    if self.tcp:
-                        self.tcp.close()
-                except Exception as ex:
-                    print(cl_red(f"Error during cleanup: {ex}"))
-
-            if not self.running:
-                break
-
-            print(cl_yellow(f"Attempting to reconnect in {self.reconnection_delay} seconds..."))
-            time.sleep(self.reconnection_delay)
+                
+                continue
 
     def send(self, cmd):
         """Thread-safe send command"""
@@ -208,21 +238,23 @@ class TCPSocket:
         header_len = 10
         msglength = 0
 
-        byt_len = ""
+        byt_len = b""  # Initialize as bytes, not string
         byt_len = self.connection.recv(header_len)
         diff_header = header_len - len(byt_len)
         while diff_header > 0:
-            byt_len.extend(self.connection.recv(diff_header))
+            # Use bytes concatenation instead of extend
+            byt_len = byt_len + self.connection.recv(diff_header)
             diff_header = header_len - len(byt_len)
 
         msglength = int(byt_len.decode("utf-8")) + 1  # include crocodile and space
-        msg = ""
+        msg = b""  # Initialize as bytes
 
         if msglength > 0 and msglength < 5000:
             msg = self.connection.recv(msglength)
             diff_msg = msglength - len(msg)
             while diff_msg > 0:
                 newmsg = self.connection.recv(diff_msg)
-                msg.extend(newmsg)
+                # Use bytes concatenation instead of extend
+                msg = msg + newmsg
                 diff_msg = msglength - len(msg)
         return msg
