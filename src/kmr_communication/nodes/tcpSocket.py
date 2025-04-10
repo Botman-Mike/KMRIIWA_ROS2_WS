@@ -84,11 +84,26 @@ class TCPSocket:
 
     def monitor_heartbeat(self):
         """Monitor connection health and attempt reconnection if needed"""
-        last_reported_status = True  # Track last reported connection status
+        last_reported_status = None  # None means no status has been reported yet
+        initialization_grace_period = 5  # Give the socket this many seconds to connect before reporting status
+        start_time = time.time()
         
         while self.running:
-            # First check if we're connected before checking heartbeat
-            if self.isconnected:
+            # During initialization, don't report down status
+            if last_reported_status is None and time.time() - start_time < initialization_grace_period:
+                time.sleep(1)
+                continue
+                
+            # First time status check after grace period
+            if last_reported_status is None:
+                last_reported_status = self.isconnected
+                # Only report if the connection is up after grace period
+                if self.isconnected:
+                    print(cl_green(f"Connection established for {self.node_name}"))
+                # Don't report initial "down" - it's expected during startup
+                    
+            # Check if we're connected before checking heartbeat
+            elif self.isconnected:
                 if (time.time() - self.last_heartbeat) > self.heartbeat_timeout:
                     print(cl_yellow(f"Heartbeat timeout for {self.node_name}. Attempting to reconnect..."))
                     
@@ -100,10 +115,8 @@ class TCPSocket:
                     # Mark as disconnected but let the main loop handle cleanup
                     with self.connection_lock:
                         self.isconnected = False
-                        
-                    # Don't try to close the socket here, let main thread handle it
             else:
-                # Only report once when status changes
+                # If we're not connected but were previously, report once
                 if last_reported_status:
                     print(cl_yellow(f"Connection down for {self.node_name}"))
                     last_reported_status = False
@@ -127,6 +140,7 @@ class TCPSocket:
                 self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 self.tcp.bind(server_address)
                 self.tcp.listen(3)
+                self.tcp.settimeout(30)  # 30 second timeout for accept()
 
                 with self.connection_lock:
                     self.connection, client_address = self.tcp.accept()
@@ -200,7 +214,14 @@ class TCPSocket:
                 time.sleep(self.reconnection_delay)
             except Exception as e:
                 attempt += 1
-                print(cl_red(f'Connection attempt {attempt} failed: {e}'))
+                err_type = type(e).__name__
+                print(cl_red(f'Connection attempt {attempt} failed: {err_type}: {e}'))
+                # Add more specific debugging for common errors
+                if isinstance(e, socket.error):
+                    if e.errno == 111:  # Connection refused
+                        print(cl_yellow(f"  → The robot may not be listening on this port yet"))
+                    elif e.errno == 110:  # Connection timeout
+                        print(cl_yellow(f"  → Network route exists but robot not responding"))
                 if attempt >= self.max_reconnection_attempts:
                     print(cl_red(f'Maximum reconnection attempts reached. Waiting longer...'))
                     time.sleep(self.reconnection_delay * 5)
