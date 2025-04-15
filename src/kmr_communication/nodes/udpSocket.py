@@ -41,7 +41,7 @@ def cl_lightcyan(msge): return '\033[96m' + msge + '\033[0m'
 
 class UDPSocket:
     def __init__(self,ip,port,node):
-        self.BUFFER_SIZE = 4096
+        self.BUFFER_SIZE = 65535  # Updated according to protocol - increased from 4096
         self.isconnected = False
         self.node_name = node
         self.ip = ip
@@ -136,8 +136,8 @@ class UDPSocket:
             try:
                 print(cl_cyan(f'Starting up node: {self.node_name}, IP: {self.ip}, Port: {self.port}'))
                 self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                self.udp.settimeout(1.0)  # Increased timeout for better stability
-                self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)
+                self.udp.settimeout(1.0)  # Non-blocking as per protocol
+                self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)  # Increased buffer
                 self.udp.bind((self.ip, self.port))
                 
                 # Wait for initial data to establish connection
@@ -164,6 +164,19 @@ class UDPSocket:
                 # Send an initial hello message to confirm connection
                 self.udp.sendto("hello KUKA".encode('utf-8'), self.client_address)
                 attempt = 0  # Reset attempt counter on successful connection
+                
+                # Heartbeat sending thread (every 5 seconds as per protocol)
+                def send_heartbeat():
+                    while self.isconnected and self.running:
+                        try:
+                            if self.client_address:
+                                self.udp.sendto("heartbeat".encode('utf-8'), self.client_address)
+                        except:
+                            pass
+                        time.sleep(5)  # Send heartbeat every 5 seconds as specified in protocol
+                
+                # Start heartbeat thread
+                thread.start_new_thread(send_heartbeat, ())
                 
                 # Main data processing loop
                 while self.isconnected and self.running:

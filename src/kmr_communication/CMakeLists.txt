@@ -66,24 +66,41 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+# Install executable scripts
+file(GLOB EXECUTABLE_SCRIPTS
+  "script/dummy_data.py"
+  "nodes/view_frames.py"
+  "nodes/buffer.py" 
+  "script/test.py"
+  "nodes/tcpSocket.py"
+  "nodes/udpSocket.py"
+  "script/dummy_odom.py"
+  "nodes/kmp_commands_node.py"
+  "nodes/kmp_laserscan_node.py"
+  "nodes/kmp_odometry_node.py"
+  "nodes/kmp_statusdata_node.py"
+  "nodes/lbr_statusdata_node.py"
+  "nodes/lbr_sensordata_node.py"
+  "nodes/lbr_commands_node.py"
+  "nodes/test2.py"
+)
+
+# Add optional scripts if they exist
+foreach(SCRIPT
+  "nodes/safety_monitor.py"
+  "nodes/communication_health_monitor.py"
+  "nodes/emergency_stop_bridge.py"
+)
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${SCRIPT}")
+    list(APPEND EXECUTABLE_SCRIPTS "${SCRIPT}")
+  else()
+    message(WARNING "Optional script ${SCRIPT} not found, will not be installed")
+  endif()
+endforeach()
+
 install(
-  PROGRAMS
-    script/dummy_data.py
-    nodes/view_frames.py
-    nodes/buffer.py
-    script/test.py
-    nodes/tcpSocket.py
-    nodes/udpSocket.py
-    script/dummy_odom.py
-    nodes/kmp_commands_node.py
-    nodes/kmp_laserscan_node.py
-    nodes/kmp_odometry_node.py
-    nodes/kmp_statusdata_node.py
-    nodes/lbr_statusdata_node.py
-    nodes/lbr_sensordata_node.py
-    nodes/lbr_commands_node.py
-    nodes/test2.py
-    DESTINATION lib/${PROJECT_NAME}
+  PROGRAMS ${EXECUTABLE_SCRIPTS}
+  DESTINATION lib/${PROJECT_NAME}
 )
 
 # Make package available to other packages

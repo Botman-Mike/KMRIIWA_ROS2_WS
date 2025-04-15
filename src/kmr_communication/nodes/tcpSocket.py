@@ -53,7 +53,7 @@ class TCPSocket:
         self.max_reconnection_attempts = 5
         self.reconnection_delay = 2  # seconds
         self.last_heartbeat = time.time()
-        self.heartbeat_timeout = 10  # seconds
+        self.heartbeat_timeout = 10  # seconds - matches protocol
         self.running = True
 
         # Data
@@ -151,6 +151,24 @@ class TCPSocket:
                 print(cl_green(f'Connected to client at {client_address}'))
                 attempt = 0  # Reset attempt counter on successful connection
                 time.sleep(1)
+
+                # Add heartbeat sending thread
+                def send_heartbeat():
+                    while self.isconnected and self.running:
+                        try:
+                            # Format according to protocol: 10-digit length prefix + "heartbeat"
+                            msg = "heartbeat"
+                            length = str(len(msg)).zfill(10)  # 10-digit length prefix
+                            heartbeat_msg = length + msg
+                            with self.connection_lock:
+                                if self.isconnected and self.connection:
+                                    self.connection.sendall(heartbeat_msg.encode("UTF-8"))
+                        except:
+                            pass
+                        time.sleep(5)  # Send heartbeat every 5 seconds as specified in protocol
+                
+                # Start heartbeat thread
+                threading.Thread(target=send_heartbeat, daemon=True).start()
 
                 # Main data processing loop
                 while self.isconnected and self.running:
