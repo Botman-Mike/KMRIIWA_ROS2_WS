@@ -55,6 +55,8 @@ class UDPSocket:
         self.last_heartbeat = time.time()
         self.heartbeat_timeout = 10  # seconds
         self.running = True
+        self.startup_grace_period = 30  # Give the robot 30 seconds to start up before reporting issues
+        self.startup_time = time.time()
 
         #Data
         self.odometry = []
@@ -80,12 +82,12 @@ class UDPSocket:
     def monitor_heartbeat(self):
         """Monitor connection health and attempt reconnection if needed"""
         last_reported_status = None  # None means no status has been reported yet
-        initialization_grace_period = 5  # Give the socket this many seconds to connect before reporting status
+        initialization_grace_period = self.startup_grace_period  # Give the robot this many seconds to connect before reporting status
         start_time = time.time()
         
         while self.running:
-            # During initialization, don't report down status
-            if last_reported_status is None and time.time() - start_time < initialization_grace_period:
+            # During startup grace period, don't report down status
+            if time.time() - self.startup_time < initialization_grace_period:
                 time.sleep(1)
                 continue
                 
@@ -95,7 +97,8 @@ class UDPSocket:
                 # Only report if the connection is up after grace period
                 if self.isconnected:
                     print(cl_green(f"Connection established for {self.node_name}"))
-                # Don't report initial "down" - it's expected during startup
+                else:
+                    print(cl_yellow(f"Unable to establish connection for {self.node_name}. Will keep trying in background."))
                     
             # Check if we're connected before checking heartbeat
             elif self.isconnected:
