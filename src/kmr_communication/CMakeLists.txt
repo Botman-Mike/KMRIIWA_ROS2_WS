@@ -99,7 +99,23 @@ foreach(SCRIPT
 endforeach()
 
 install(
-  PROGRAMS ${EXECUTABLE_SCRIPTS}
+  PROGRAMS
+    script/dummy_data.py
+    script/check_connections.py
+    nodes/view_frames.py
+    "nodes/buffer.py" 
+    "script/test.py"
+    "nodes/tcpSocket.py"
+    "nodes/udpSocket.py"
+    "script/dummy_odom.py"
+    "nodes/kmp_commands_node.py"
+    "nodes/kmp_laserscan_node.py"
+    "nodes/kmp_odometry_node.py"
+    "nodes/kmp_statusdata_node.py"
+    "nodes/lbr_statusdata_node.py"
+    "nodes/lbr_sensordata_node.py"
+    "nodes/lbr_commands_node.py"
+    "nodes/test2.py"
   DESTINATION lib/${PROJECT_NAME}
 )
 

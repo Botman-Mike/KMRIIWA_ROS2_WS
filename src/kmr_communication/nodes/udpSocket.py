@@ -57,8 +57,26 @@ class UDPSocket:
         self.running = True
         self.startup_grace_period = 30  # Give the robot 30 seconds to start up before reporting issues
         self.startup_time = time.time()
+        
+        # Add connection monitoring variables
+        self.connection_status_publisher = None
+        self.connection_status_timer = None
+        self.connection_check_interval = 5.0  # seconds
+        
+        # Tracking for which ROS node is using this socket 
+        self.ros_node = None
+        
+        # Track more detailed connection state
+        self.connection_state = {
+            'bound': False,              # Socket is bound to the port
+            'connected': False,          # Remote client has connected
+            'last_data_time': 0,         # Last time data was received
+            'bytes_received': 0,         # Total bytes received
+            'port': self.port,           # Port we're listening on
+            'protocol': 'UDP'            # Protocol type
+        }
 
-        #Data
+        # Data
         self.odometry = []
         self.laserScanB1 = []
         self.laserScanB4 = []
@@ -141,7 +159,15 @@ class UDPSocket:
                 self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 self.udp.settimeout(1.0)  # Non-blocking as per protocol
                 self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)  # Increased buffer
-                self.udp.bind((self.ip, self.port))
+                
+                try:
+                    self.udp.bind((self.ip, self.port))
+                    self.connection_state['bound'] = True
+                    print(cl_green(f"Successfully bound to port {self.port}"))
+                except socket.error as e:
+                    print(cl_red(f"Error binding to port {self.port}: {e}"))
+                    self.connection_state['bound'] = False
+                    raise e
                 
                 # Wait for initial data to establish connection
                 connection_wait_start = time.time()
@@ -187,6 +213,8 @@ class UDPSocket:
                         data, addr = self.udp.recvfrom(self.BUFFER_SIZE)
                         if data:
                             self.last_heartbeat = time.time()  # Update heartbeat on successful receive
+                            self.connection_state['last_data_time'] = time.time()
+                            self.connection_state['bytes_received'] += len(data)
                             
                             # Log the size of incoming data for debugging
                             print(f"Received UDP data of size {len(data)} bytes from {self.node_name}")
@@ -292,3 +320,59 @@ class UDPSocket:
             with self.connection_lock:
                 self.isconnected = False
             return False
+
+    # Add these new methods to check and publish connection status
+    
+    def setup_ros_monitoring(self, node):
+        """Setup ROS monitoring for this socket"""
+        from std_msgs.msg import Bool, String
+        self.ros_node = node
+        
+        # Create connection status publisher
+        if hasattr(node, 'create_publisher'):
+            # Create connection status publishers
+            topic_base = self.node_name.replace('_node', '')
+            self.connection_status_publisher = node.create_publisher(
+                Bool, f"{topic_base}/connection_status", 10)
+            
+            # Create detailed status publisher
+            self.connection_details_publisher = node.create_publisher(
+                String, f"{topic_base}/connection_details", 10)
+            
+            # Create timer to periodically publish status
+            self.connection_status_timer = node.create_timer(
+                self.connection_check_interval, self.publish_connection_status)
+            
+            print(cl_cyan(f"Connection monitoring setup for {self.node_name}"))
+    
+    def publish_connection_status(self):
+        """Publish connection status to ROS topics"""
+        if self.connection_status_publisher and self.ros_node:
+            from std_msgs.msg import Bool, String
+            import json
+            
+            # Basic connection status
+            msg = Bool()
+            msg.data = self.isconnected
+            self.connection_status_publisher.publish(msg)
+            
+            # Detailed connection status
+            details_msg = String()
+            
+            # Update connection state
+            self.connection_state['connected'] = self.isconnected
+            self.connection_state['last_heartbeat'] = self.last_heartbeat
+            
+            # Convert to JSON string
+            details_msg.data = json.dumps({
+                'node_name': self.node_name,
+                'ip': self.ip,
+                'port': self.port,
+                'protocol': 'UDP',
+                'is_connected': self.isconnected,
+                'bound': self.connection_state['bound'],
+                'last_data_time': time.time() - self.last_heartbeat if self.last_heartbeat else 0,
+                'bytes_received': self.connection_state['bytes_received'],
+                'client_address': str(self.client_address) if self.client_address else "None"
+            })
+            self.connection_details_publisher.publish(details_msg)
