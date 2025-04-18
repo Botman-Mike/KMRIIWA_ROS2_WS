@@ -46,7 +46,7 @@ class LbrCommandsNode(Node):
         self.name = 'lbr_commands_node'
         self.declare_parameter('port', 30005)
         self.declare_parameter('reconnect_interval', 5.0)  # Seconds between reconnection attempts
-        self.declare_parameter('command_timeout', 2.0)  # Timeout for command responses
+        self.declare_parameter('command_timeout', 600.0)  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
         self.declare_parameter('respect_safety', True)  # Whether to respect safety signals
         
         port = int(self.get_parameter('port').value)
@@ -126,7 +126,7 @@ class LbrCommandsNode(Node):
         self.command_worker_thread.start()
 
         # Wait for initial connection
-        connection_timeout = 30.0  # 30 seconds timeout
+        connection_timeout = 600.0  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
         start_time = time.time()
         
         self.get_logger().info('Waiting for initial connection...')
@@ -276,7 +276,7 @@ class LbrCommandsNode(Node):
         self.movement_in_progress = True
         
         # Wait for movement to complete with timeout
-        timeout = 60.0  # 60 second timeout for movement
+        timeout = 600.0  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
         start_time = time.time()
         
         while not self.done_moving and time.time() - start_time < timeout:

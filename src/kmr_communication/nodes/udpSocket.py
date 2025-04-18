@@ -53,9 +53,9 @@ class UDPSocket:
         self.max_reconnection_attempts = 5
         self.reconnection_delay = 2  # seconds
         self.last_heartbeat = time.time()
-        self.heartbeat_timeout = 10  # seconds
+        self.heartbeat_timeout = 15  # seconds - Extended to 15 seconds (3x the send rate)
         self.running = True
-        self.startup_grace_period = 30  # Give the robot 30 seconds to start up before reporting issues
+        self.startup_grace_period = 600  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
         self.startup_time = time.time()
         
         # Add connection monitoring variables
@@ -157,7 +157,7 @@ class UDPSocket:
             try:
                 print(cl_cyan(f'Starting up node: {self.node_name}, IP: {self.ip}, Port: {self.port}'))
                 self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                self.udp.settimeout(1.0)  # Non-blocking as per protocol
+                self.udp.settimeout(600.0)  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
                 self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)  # Increased buffer
                 
                 try:
@@ -171,7 +171,7 @@ class UDPSocket:
                 
                 # Wait for initial data to establish connection
                 connection_wait_start = time.time()
-                while not self.isconnected and (time.time() - connection_wait_start) < 30:  # 30 sec connection timeout
+                while not self.isconnected and (time.time() - connection_wait_start) < 600:  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
                     try:
                         data, client_addr = self.udp.recvfrom(self.BUFFER_SIZE)
                         if data:  # If we get any data, we consider ourselves connected

@@ -53,9 +53,9 @@ class TCPSocket:
         self.max_reconnection_attempts = 5
         self.reconnection_delay = 2  # seconds
         self.last_heartbeat = time.time()
-        self.heartbeat_timeout = 10  # seconds - matches protocol
+        self.heartbeat_timeout = 15  # seconds - Extended to 15 seconds (3x the send rate)
         self.running = True
-        self.startup_grace_period = 30  # Give the robot 30 seconds to start up before reporting issues
+        self.startup_grace_period = 600  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
         self.startup_time = time.time()
 
         # Data
@@ -140,14 +140,43 @@ class TCPSocket:
                 print(cl_cyan(f'Starting up node: {self.node_name}, IP: {self.ip}, Port: {self.port}'))
                 self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 server_address = (self.ip, self.port)
+                
+                # Add socket reuse option to prevent "Address already in use" errors
                 self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                
                 self.tcp.bind(server_address)
-                self.tcp.listen(3)
-                self.tcp.settimeout(30)  # 30 second timeout for accept()
-
+                
+                # Increase backlog queue from default 3 to 10 to handle multiple connection attempts
+                self.tcp.listen(10)
+                
+                # Extend timeout for initial connection - 10 minutes as requested
+                self.tcp.settimeout(600)  
+                
+                print(cl_green(f'Socket bound and listening on {server_address}'))
+                
                 with self.connection_lock:
                     self.connection, client_address = self.tcp.accept()
-                    self.tcp.settimeout(0.5)  # Increased timeout for better stability
+                    
+                    # Increase socket buffer sizes for performance
+                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)
+                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1048576)
+                    
+                    # Disable Nagle's algorithm for lower latency
+                    self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    
+                    # Use keep-alive to detect connection loss
+                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    
+                    # TCP keepalive on Linux - more aggressive to detect problems faster
+                    if hasattr(socket, 'TCP_KEEPIDLE'):
+                        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
+                    if hasattr(socket, 'TCP_KEEPINTVL'):
+                        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+                    if hasattr(socket, 'TCP_KEEPCNT'):
+                        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
+                        
+                    # Set reasonable timeout for socket operations
+                    self.connection.settimeout(600)  # 10 minute operations timeout
                     self.isconnected = True
                     self.last_heartbeat = time.time()
 
@@ -157,18 +186,23 @@ class TCPSocket:
 
                 # Add heartbeat sending thread
                 def send_heartbeat():
+                    last_heartbeat_send = 0
                     while self.isconnected and self.running:
                         try:
-                            # Format according to protocol: 10-digit length prefix + "heartbeat"
-                            msg = "heartbeat"
-                            length = str(len(msg)).zfill(10)  # 10-digit length prefix
-                            heartbeat_msg = length + msg
-                            with self.connection_lock:
-                                if self.isconnected and self.connection:
-                                    self.connection.sendall(heartbeat_msg.encode("UTF-8"))
-                        except:
-                            pass
-                        time.sleep(5)  # Send heartbeat every 5 seconds as specified in protocol
+                            current_time = time.time()
+                            # Only send a heartbeat every 5 seconds to avoid flooding
+                            if current_time - last_heartbeat_send >= 5:
+                                with self.connection_lock:
+                                    if self.isconnected and self.connection:
+                                        # Format according to protocol: 10-digit length prefix + "heartbeat"
+                                        msg = "heartbeat"
+                                        length = str(len(msg)).zfill(10)  # 10-digit length prefix
+                                        heartbeat_msg = length + msg
+                                        self.connection.sendall(heartbeat_msg.encode("UTF-8"))
+                                        last_heartbeat_send = current_time
+                        except Exception as e:
+                            print(cl_yellow(f"Heartbeat send error: {e}"))
+                        time.sleep(1)  # Check every second but only send every 5
                 
                 # Start heartbeat thread
                 threading.Thread(target=send_heartbeat, daemon=True).start()
@@ -176,67 +210,62 @@ class TCPSocket:
                 # Main data processing loop
                 while self.isconnected and self.running:
                     try:
-                        self.last_heartbeat = time.time()
-                        data = self.recvmsg()
-                        
-                        # Log the size of incoming data for debugging
+                        data = self.connection.recv(self.BUFFER_SIZE)
                         if data:
-                            print(f"Received data of size {len(data)} bytes from {self.node_name}")
+                            self.last_heartbeat = time.time()
+                            
+                            # Try to decode as UTF-8, but handle binary data gracefully
+                            try:
+                                data_str = data.decode('utf-8').strip()
+                                
+                                # Check if this is a heartbeat-only message
+                                if data_str in ["heartbeat", "ping", ""]:
+                                    continue  # Skip processing for heartbeat messages
+                                
+                                # Process the received command
+                                for pack in data_str.split(">"):
+                                    cmd_splt = pack.split()
+                                    if len(cmd_splt) and cmd_splt[0] == 'odometry':
+                                        self.odometry = cmd_splt
+                                    if len(cmd_splt) and cmd_splt[0] == 'laserScan':
+                                        if cmd_splt[2] == '1801':
+                                            self.laserScanB1.append(cmd_splt)
+                                        elif cmd_splt[2] == '1802':
+                                            self.laserScanB4.append(cmd_splt)
+                                    if len(cmd_splt) and cmd_splt[0] == 'kmp_statusdata':
+                                        self.kmp_statusdata = cmd_splt
+                                    if len(cmd_splt) and cmd_splt[0] == 'lbr_statusdata':
+                                        self.lbr_statusdata = cmd_splt
+                                    if len(cmd_splt) and cmd_splt[0] == 'lbr_sensordata':
+                                        self.lbr_sensordata.append(cmd_splt)
+                                
+                            except UnicodeDecodeError:
+                                # If it can't be decoded as text, just use it as a heartbeat
+                                pass
                         else:
-                            raise socket.error("Connection closed by remote host")
-                        
-                        # Check if this is a heartbeat-only message
-                        try:
-                            data_str = data.decode("utf-8")
-                            if data_str.strip() in ["heartbeat", "ping", ""]:
-                                continue  # Skip processing for heartbeat messages
-                        except UnicodeDecodeError:
-                            # If it can't be decoded as text, just use it as a heartbeat
-                            continue
-
-                        for pack in (data.decode("utf-8")).split(">"):
-                            cmd_splt = pack.split()
-                            if len(cmd_splt) and cmd_splt[0] == 'odometry':
-                                self.odometry = cmd_splt
-                            if len(cmd_splt) and cmd_splt[0] == 'laserScan':
-                                if cmd_splt[2] == '1801':
-                                    self.laserScanB1.append(cmd_splt)
-                                elif cmd_splt[2] == '1802':
-                                    self.laserScanB4.append(cmd_splt)
-                            if len(cmd_splt) and cmd_splt[0] == 'kmp_statusdata':
-                                self.kmp_statusdata = cmd_splt
-                            if len(cmd_splt) and cmd_splt[0] == 'lbr_statusdata':
-                                self.lbr_statusdata = cmd_splt
-                            if len(cmd_splt) and cmd_splt[0] == 'lbr_sensordata':
-                                self.lbr_sensordata.append(cmd_splt)
+                            # Empty data means client disconnected
+                            print(cl_yellow(f"Client disconnected - empty data received"))
+                            with self.connection_lock:
+                                self.isconnected = False
+                            break
+                            
                     except socket.timeout:
                         # Socket timeout is not an error, just continue
                         continue
                     except Exception as e:
-                        print(cl_yellow(f"Error processing data: {e}"))
-                        with self.connection_lock:
-                            self.isconnected = False
-                        break
-
-                print(cl_yellow(f"Connection lost, cleaning up..."))
-                with self.connection_lock:
-                    try:
-                        if self.connection:
-                            self.connection.close()
-                        if self.tcp:
-                            self.tcp.close()
-                    except Exception as ex:
-                        print(cl_red(f"Error during cleanup: {ex}"))
-
-                if not self.running:
-                    break
-
-                print(cl_yellow(f"Attempting to reconnect in {self.reconnection_delay} seconds..."))
-                time.sleep(self.reconnection_delay)
-            except Exception as e:
-                attempt += 1
+                        print(cl_yellow(f"Error receiving data: {e}"))
+                        if not self.running:
+                            break
+                            
+                        # Don't immediately disconnect on errors
+                        print(cl_yellow(f"Will attempt to continue..."))
+                        time.sleep(1)
+                        continue
+                        
+            except socket.error as e:
                 err_type = type(e).__name__
-                print(cl_red(f'Connection attempt {attempt} failed: {err_type}: {e}'))
+                print(cl_yellow(f'Connection error: {err_type}: {e}'))
+                attempt += 1
                 # Add more specific debugging for common errors
                 if isinstance(e, socket.error):
                     if e.errno == 111:  # Connection refused

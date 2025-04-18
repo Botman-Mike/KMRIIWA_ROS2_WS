@@ -32,7 +32,12 @@ def generate_launch_description():
 
     # Make robot name configurable via launch argument
     robot_name = LaunchConfiguration('robot_name', default='KMR1')
-    robot_ip = LaunchConfiguration('robot_ip', default='172.31.1.206')
+    
+    # Bind to all interfaces to accept connections from any machine
+    bind_ip = LaunchConfiguration('bind_ip', default='0.0.0.0')
+    
+    # The actual robot IP - used for outgoing connections
+    robot_ip = LaunchConfiguration('robot_ip', default='172.31.1.10')
     
     param_dir = LaunchConfiguration(
         'param_dir',
@@ -54,9 +59,14 @@ def generate_launch_description():
             description='Robot name (KMR1/KMR2)'),
             
         DeclareLaunchArgument(
+            'bind_ip',
+            default_value='0.0.0.0',
+            description='IP address to bind server sockets to (0.0.0.0 = all interfaces)'),
+            
+        DeclareLaunchArgument(
             'robot_ip',
-            default_value='172.31.1.206',
-            description='IP address of the robot'),
+            default_value='172.31.1.10',
+            description='IP address of the actual robot (for outgoing connections)'),
 
         # TF transformations for laser scanners - uncommented to ensure proper coordinate frames
         launch_ros.actions.Node(
@@ -81,7 +91,7 @@ def generate_launch_description():
             output="screen",
             emulate_tty=True,
             arguments=['-c', connection_type_TCP,'-ro', robot_name],
-            parameters=[param_dir, {'port': 30002, 'ip': robot_ip, 'respect_safety': True}]),
+            parameters=[param_dir, {'port': 30002, 'ip': bind_ip, 'robot_ip': robot_ip, 'respect_safety': True}]),
 
         # Sensor nodes - changed to UDP for better performance
         launch_ros.actions.Node(
@@ -91,7 +101,7 @@ def generate_launch_description():
            output="screen",
            emulate_tty=True,
            arguments=['-c', connection_type_UDP, '-ro', robot_name],
-           parameters=[param_dir, {'port': 30003, 'ip': robot_ip}]),
+           parameters=[param_dir, {'port': 30003, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
         launch_ros.actions.Node(
            package="kmr_communication",
@@ -100,7 +110,7 @@ def generate_launch_description():
            output="screen",
            emulate_tty=True,
            arguments=['-c', connection_type_UDP,'-ro', robot_name],
-           parameters=[param_dir, {'port': 30004, 'ip': robot_ip}]),
+           parameters=[param_dir, {'port': 30004, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
         # Status nodes - keep as TCP for reliability
         launch_ros.actions.Node(
@@ -110,7 +120,7 @@ def generate_launch_description():
            output="screen",
            emulate_tty=True,
            arguments=['-c', connection_type_TCP, '-ro', robot_name],
-           parameters=[param_dir, {'port': 30001, 'ip': robot_ip}]),
+           parameters=[param_dir, {'port': 30001, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
         # LBR command node - keep as TCP
         launch_ros.actions.Node(
@@ -120,7 +130,7 @@ def generate_launch_description():
             output="screen",
             emulate_tty=True,
             arguments=['-c', connection_type_TCP, '-ro', robot_name],
-            parameters=[param_dir, {'port': 30005, 'ip': robot_ip, 'respect_safety': True}]),
+            parameters=[param_dir, {'port': 30005, 'ip': bind_ip, 'robot_ip': robot_ip, 'respect_safety': True}]),
 
         # LBR status node - keep as TCP
         launch_ros.actions.Node(
@@ -130,7 +140,7 @@ def generate_launch_description():
             output="screen",
             emulate_tty=True,
             arguments=['-c', connection_type_TCP, '-ro', robot_name],
-            parameters=[param_dir, {'port': 30006, 'ip': robot_ip}]),
+            parameters=[param_dir, {'port': 30006, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
         # LBR sensor node - changed to UDP for better performance
         launch_ros.actions.Node(
@@ -140,7 +150,7 @@ def generate_launch_description():
             output="screen",
             emulate_tty=True,
             arguments=['-c', connection_type_UDP, '-ro', robot_name],
-            parameters=[param_dir, {'port': 30007, 'ip': robot_ip}]),
+            parameters=[param_dir, {'port': 30007, 'ip': bind_ip, 'robot_ip': robot_ip}]),
     ])
 
     # Try to add monitoring nodes only if they exist
@@ -190,7 +200,7 @@ def generate_launch_description():
                 emulate_tty=True,
                 parameters=[{
                     'check_interval': 1.0,
-                    'timeout_threshold': 3.0
+                    'timeout_threshold': 600.0  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
                 }])
         )
     else:

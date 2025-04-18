@@ -41,7 +41,7 @@ class CommunicationHealthMonitor(Node):
         
         # Parameters
         self.declare_parameter('check_interval', 1.0)  # How often to check communication health (seconds)
-        self.declare_parameter('timeout_threshold', 3.0)  # Time after which a channel is considered down (seconds)
+        self.declare_parameter('timeout_threshold', 600.0)  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
         
         self.check_interval = self.get_parameter('check_interval').value
         self.timeout_threshold = self.get_parameter('timeout_threshold').value

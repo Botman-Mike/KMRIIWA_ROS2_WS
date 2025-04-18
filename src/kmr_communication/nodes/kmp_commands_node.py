@@ -99,9 +99,9 @@ class KmpCommandsNode(Node):
         self.timer = self.create_timer(1.0, self.connection_check_callback)
         
         # Wait for initial connection
-        connection_timeout = 30.0  # 30 seconds timeout
-        start_time = time.time()
+        connection_timeout = 600.0  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
         
+        start_time = time.time()
         self.get_logger().info('Waiting for initial connection...')
         while not self.soc.isconnected and time.time() - start_time < connection_timeout:
             time.sleep(0.1)
