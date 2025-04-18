@@ -43,6 +43,10 @@ class LbrCommandsNode(Node):
         super().__init__('lbr_commands_node')
         self.name = 'lbr_commands_node'
         self.declare_parameter('port', 30005)
+        self.declare_parameter('reconnect_interval', 5.0)  # Seconds between reconnection attempts
+        self.declare_parameter('command_timeout', 600.0)  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
+        self.declare_parameter('respect_safety', True)  # Whether to respect safety signals
+        
         port = int(self.get_parameter('port').value)
         if robot == 'KMR1':
             self.declare_parameter('KMR1/ip', '172.31.1.206')
@@ -74,13 +78,108 @@ class LbrCommandsNode(Node):
 
         self.done_moving = False
         self.last_path_variable = False
+        self.command_queue_lock = threading.Lock()
+        self.command_queue = []  # Queue for commands to ensure they're sent in order
+        
+        # Track robot safety status
+        self.safe_to_move = True
+        self.emergency_stop_active = False
+        self.movement_in_progress = False
+        
+        # Create a worker thread to process command queue
+        self.command_worker_thread = threading.Thread(target=self.process_command_queue, daemon=True)
+        self.command_worker_thread.start()
 
-        while not self.soc.isconnected:
-            pass
-        self.get_logger().info('Node is ready')
+        # Wait for initial connection
+        connection_timeout = 600.0  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
+        start_time = time.time()
+        
+        self.get_logger().info('Waiting for initial connection...')
+        while not self.soc.isconnected and time.time() - start_time < connection_timeout:
+            time.sleep(0.1)
+            
+        if self.soc.isconnected:
+            self.get_logger().info('Connected to manipulator successfully')
+        else:
+            self.get_logger().warn('Initial connection timed out, will keep trying in background')
 
-    def status_callback(self,data):
-        if (self.last_path_variable == False and data.path_finished == True):
+    def connection_check_callback(self):
+        """Periodically check connection status and publish it"""
+        status_msg = Bool()
+        status_msg.data = self.soc.isconnected
+        self.connection_status_pub.publish(status_msg)
+        
+        # Log connection status periodically at debug level
+        if self.soc.isconnected:
+            self.get_logger().debug('Manipulator connection is active')
+        else:
+            self.get_logger().warn('Manipulator connection is down')
+
+    def process_command_queue(self):
+        """Worker thread to process command queue"""
+        while rclpy.ok():
+            if self.soc.isconnected and self.command_queue:
+                with self.command_queue_lock:
+                    if self.command_queue:
+                        cmd = self.command_queue.pop(0)
+                        if not self.soc.send(cmd):
+                            self.get_logger().error(f"Failed to send command: {cmd}")
+                            # Option to requeue failed commands
+                            # self.command_queue.insert(0, cmd)
+            time.sleep(0.01)  # Small sleep to prevent CPU hogging
+
+    def queue_command(self, cmd):
+        """Add command to queue for sending"""
+        with self.command_queue_lock:
+            self.command_queue.append(cmd)
+        return True
+
+    def safety_callback(self, msg):
+        """Process safety status updates"""
+        was_safe = self.safe_to_move
+        self.safe_to_move = msg.data
+        
+        if was_safe and not self.safe_to_move:
+            self.get_logger().warn("LBR has entered unsafe state - commands will be blocked")
+            # Clear command queue when entering unsafe state
+            with self.command_queue_lock:
+                self.command_queue.clear()
+            
+            # If a movement is in progress, send a stop command
+            if self.movement_in_progress:
+                self.soc.send("stopLBRmotion")
+                self.get_logger().warn("Stopping in-progress movement due to safety condition")
+                
+        elif not was_safe and self.safe_to_move:
+            self.get_logger().info("LBR has returned to safe state - commands will be accepted")
+
+    def estop_callback(self, msg):
+        """Process emergency stop status"""
+        was_stopped = self.emergency_stop_active
+        self.emergency_stop_active = msg.data
+        
+        if not was_stopped and self.emergency_stop_active:
+            self.get_logger().error("Emergency stop activated - all commands blocked")
+            # Clear command queue when e-stop activated
+            with self.command_queue_lock:
+                self.command_queue.clear()
+                
+            # If a movement is in progress, send a stop command
+            if self.movement_in_progress:
+                self.soc.send("stopLBRmotion")
+                self.get_logger().error("Emergency stopping in-progress movement")
+                
+        elif was_stopped and not self.emergency_stop_active:
+            self.get_logger().info("Emergency stop cleared")
+
+    def reset_callback(self, msg):
+        """Handle safety reset requests"""
+        if msg.data and self.soc.isconnected:
+            self.soc.send("resetLBRSafetyStop")
+            self.get_logger().info("Safety stop reset command sent to manipulator")
+
+    def status_callback(self, data):
+        if self.last_path_variable == False and data.path_finished == True:
             self.done_moving = True
             print("done_moving set to True")
         self.last_path_variable = data.path_finished
@@ -99,12 +198,52 @@ class LbrCommandsNode(Node):
     def move_manipulator_callback(self, goal_handle):
         self.path_callback(goal_handle.request.path)
         self.done_moving = False
-        while (not self.done_moving):
-            pass
-        result = MoveManipulator.Result()
-        result.success = True
-        goal_handle.succeed()
-        return result
+        self.movement_in_progress = True
+        
+        # Wait for movement to complete with timeout
+        timeout = 600.0  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
+        start_time = time.time()
+        
+        while not self.done_moving and time.time() - start_time < timeout:
+            # Check if we should abort due to safety condition change during execution
+            if (not self.soc.isconnected or 
+                (self.respect_safety and not self.safe_to_move) or 
+                self.emergency_stop_active):
+                
+                self.get_logger().error("Movement aborted due to safety condition change")
+                goal_handle.abort()
+                result = MoveManipulator.Result()
+                result.success = False
+                return result
+                
+            time.sleep(0.1)
+            
+        if self.done_moving:
+            self.get_logger().info("Movement completed successfully")
+            result = MoveManipulator.Result()
+            result.success = True
+            goal_handle.succeed()
+            return result
+        else:
+            self.get_logger().error("Movement timed out")
+            result = MoveManipulator.Result()
+            result.success = False
+            goal_handle.abort()
+            return result
+
+    def cancel_callback(self, goal_handle):
+        """Handle cancellation of movement action"""
+        self.get_logger().info("Cancelling movement")
+        
+        # Send a stop command to the manipulator
+        if self.soc.isconnected:
+            self.soc.send("stopLBRmotion")
+            
+        # Clear the command queue
+        with self.command_queue_lock:
+            self.command_queue.clear()
+            
+        return CancelResponse.ACCEPT
 
     def path_callback(self, data):
         i=1

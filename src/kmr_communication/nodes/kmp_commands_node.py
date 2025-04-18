@@ -54,16 +54,64 @@ class KmpCommandsNode(Node):
             self.soc = UDPSocket(ip,port,self.name)
         else:
             self.soc = None
+            rclpy.shutdown()
+            return
 
-        # Make a listener for relevant topics
-        sub_twist = self.create_subscription(Twist, 'cmd_vel', self.twist_callback, 10)
-        sub_pose = self.create_subscription(Pose, 'pose', self.pose_callback, 10)
-        sub_shutdown = self.create_subscription(String, 'shutdown', self.shutdown_callback, 10)
+        # Create publishers for connection status
+        self.connection_status_pub = self.create_publisher(Bool, 'robot_connected', 10)
+        
+        # Track robot safety status
+        self.safe_to_move = True
+        self.emergency_stop_active = False
+        
+        # Subscribe to safety monitor topics
+        self.sub_safety = self.create_subscription(
+            Bool, 'kmp_safe_to_move', self.safety_callback, 10)
+        self.sub_estop = self.create_subscription(
+            Bool, 'emergency_stop_active', self.estop_callback, 10)
+        self.sub_reset = self.create_subscription(
+            Bool, 'reset_safety_stop', self.reset_callback, 10)
+        
+        # Setup command queue and lock
+        self.command_queue_lock = threading.Lock()
+        self.command_queue = []  # Queue for commands to ensure they're sent in order
+        
+        # Create a worker thread to process command queue
+        self.command_worker_thread = threading.Thread(target=self.process_command_queue, daemon=True)
+        self.command_worker_thread.start()
+        
+        # Setup subscribers for commands
+        self.sub_twist = self.create_subscription(Twist, 'cmd_vel', self.twist_callback, 10)
+        self.sub_pose = self.create_subscription(Pose, 'pose', self.pose_callback, 10)
+        self.sub_shutdown = self.create_subscription(String, 'shutdown', self.shutdown_callback, 10)
+        
+        # Setup a timer for connection monitoring
+        self.timer = self.create_timer(1.0, self.connection_check_callback)
+        
+        # Wait for initial connection
+        connection_timeout = 600.0  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
+        
+        start_time = time.time()
+        self.get_logger().info('Waiting for initial connection...')
+        while not self.soc.isconnected and time.time() - start_time < connection_timeout:
+            time.sleep(0.1)
+            
+        if self.soc.isconnected:
+            self.get_logger().info('Connected to robot successfully')
+        else:
+            self.get_logger().warn('Initial connection timed out, will keep trying in background')
 
-        while not self.soc.isconnected:
-            pass
-        self.get_logger().info('Node is ready')
-
+    def connection_check_callback(self):
+        """Periodically check connection status and publish it"""
+        status_msg = Bool()
+        status_msg.data = self.soc.isconnected
+        self.connection_status_pub.publish(status_msg)
+        
+        # Log connection status periodically
+        if self.soc.isconnected:
+            self.get_logger().debug('Robot connection is active')
+        else:
+            self.get_logger().warn('Robot connection is down')
 
     def shutdown_callback(self, data):
         print(data)

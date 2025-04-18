@@ -29,13 +29,14 @@ def generate_launch_description():
     connection_type_TCP = 'TCP'
     connection_type_UDP = 'UDP'
 
-    robot = "KMR2"
+    # Make robot name configurable via launch argument
+    robot_name = LaunchConfiguration('robot_name', default='KMR1')
     
-    # # Default parameter values to prevent warnings
-    # default_params = {
-    #     'port': 30000,  # Default port that will be overridden by specific node parameters
-    #     'KMR2/ip': '172.31.1.206'  # Default IP address
-    # }
+    # Bind to all interfaces to accept connections from any machine
+    bind_ip = LaunchConfiguration('bind_ip', default='0.0.0.0')
+    
+    # The actual robot IP - used for outgoing connections
+    robot_ip = LaunchConfiguration('robot_ip', default='172.31.1.10')
     
     param_dir = LaunchConfiguration(
         'param_dir',
@@ -49,13 +50,29 @@ def generate_launch_description():
             'param_dir',
             default_value=param_dir,
             description='Full path to parameter file to load'),
+            
+        DeclareLaunchArgument(
+            'robot_name',
+            default_value='KMR1',
+            description='Robot name (KMR1/KMR2)'),
+            
+        DeclareLaunchArgument(
+            'bind_ip',
+            default_value='0.0.0.0',
+            description='IP address to bind server sockets to (0.0.0.0 = all interfaces)'),
+            
+        DeclareLaunchArgument(
+            'robot_ip',
+            default_value='172.31.1.10',
+            description='IP address of the actual robot (for outgoing connections)'),
 
-#        launch_ros.actions.Node(
-#            package="tf2_ros",
-#            executable="static_transform_publisher",
-#            output="screen",
-#            arguments=['0','0','0','0','0','0','laser_B4_link','scan_2'],
-#           ),
+        # TF transformations for laser scanners - uncommented to ensure proper coordinate frames
+        launch_ros.actions.Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            output="screen",
+            arguments=['0','0','0','0','0','0','laser_B4_link','scan_2'],
+           ),
 
 #        launch_ros.actions.Node(
 #            package="tf2_ros",
@@ -70,8 +87,8 @@ def generate_launch_description():
             name="kmp_commands_node",
             output="screen",
             emulate_tty=True,
-            arguments=['-c', connection_type_TCP,'-ro', robot],
-            parameters=[param_dir, {'port': 30002, 'KMR2/ip': '172.31.1.206'}]),
+            arguments=['-c', connection_type_TCP,'-ro', robot_name],
+            parameters=[param_dir, {'port': 30002, 'ip': bind_ip, 'robot_ip': robot_ip, 'respect_safety': True}]),
 
         launch_ros.actions.Node(
            package="kmr_communication",
@@ -79,8 +96,8 @@ def generate_launch_description():
            name="kmp_laserscan_node",
            output="screen",
            emulate_tty=True,
-           arguments=['-c', connection_type_TCP, '-ro', robot],
-           parameters=[param_dir, {'port': 30003, 'KMR2/ip': '172.31.1.206'}]),
+           arguments=['-c', connection_type_UDP, '-ro', robot_name],
+           parameters=[param_dir, {'port': 30003, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
         launch_ros.actions.Node(
            package="kmr_communication",
@@ -88,8 +105,8 @@ def generate_launch_description():
            name="kmp_odometry_node",
            output="screen",
            emulate_tty=True,
-           arguments=['-c', connection_type_TCP,'-ro',robot],
-           parameters=[param_dir, {'port': 30004, 'KMR2/ip': '172.31.1.206'}]),
+           arguments=['-c', connection_type_UDP,'-ro', robot_name],
+           parameters=[param_dir, {'port': 30004, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
         launch_ros.actions.Node(
            package="kmr_communication",
@@ -97,8 +114,8 @@ def generate_launch_description():
            name="kmp_statusdata_node",
            output="screen",
            emulate_tty=True,
-           arguments=['-c', connection_type_TCP, '-ro', robot],
-           parameters=[param_dir, {'port': 30001, 'KMR2/ip': '172.31.1.206'}]),
+           arguments=['-c', connection_type_TCP, '-ro', robot_name],
+           parameters=[param_dir, {'port': 30001, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
         launch_ros.actions.Node(
             package="kmr_communication",
@@ -106,8 +123,8 @@ def generate_launch_description():
             name="lbr_commands_node",
             output="screen",
             emulate_tty=True,
-            arguments=['-c', connection_type_TCP, '-ro', robot],
-            parameters=[param_dir, {'port': 30005, 'KMR2/ip': '172.31.1.206'}]),
+            arguments=['-c', connection_type_TCP, '-ro', robot_name],
+            parameters=[param_dir, {'port': 30005, 'ip': bind_ip, 'robot_ip': robot_ip, 'respect_safety': True}]),
 
         launch_ros.actions.Node(
             package="kmr_communication",
@@ -115,8 +132,8 @@ def generate_launch_description():
             name="lbr_statusdata_node",
             output="screen",
             emulate_tty=True,
-            arguments=['-c', connection_type_TCP, '-ro', robot],
-            parameters=[param_dir, {'port': 30006, 'KMR2/ip': '172.31.1.206'}]),
+            arguments=['-c', connection_type_TCP, '-ro', robot_name],
+            parameters=[param_dir, {'port': 30006, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
         launch_ros.actions.Node(
             package="kmr_communication",
@@ -124,6 +141,61 @@ def generate_launch_description():
             name="lbr_sensordata_node",
             output="screen",
             emulate_tty=True,
-            arguments=['-c', connection_type_TCP, '-ro', robot],
-            parameters=[param_dir, {'port': 30007, 'KMR2/ip': '172.31.1.206'}]),
+            arguments=['-c', connection_type_UDP, '-ro', robot_name],
+            parameters=[param_dir, {'port': 30007, 'ip': bind_ip, 'robot_ip': robot_ip}]),
     ])
+
+    # Try to add monitoring nodes only if they exist
+    pkg_prefix = get_package_share_directory('kmr_communication')
+    lib_dir = os.path.join(pkg_prefix, 'lib', 'kmr_communication')
+    
+    # Add nodes if they exist, otherwise skip them
+    if os.path.exists(os.path.join(lib_dir, 'emergency_stop_bridge.py')):
+        ld.add_action(
+            launch_ros.actions.Node(
+                package="kmr_communication",
+                executable="emergency_stop_bridge.py",
+                name="emergency_stop_bridge",
+                output="screen",
+                emulate_tty=True,
+                parameters=[{
+                    'check_interval': 0.1
+                }])
+        )
+    else:
+        print(f"Warning: emergency_stop_bridge.py not found in {lib_dir}, skipping.")
+        
+    if os.path.exists(os.path.join(lib_dir, 'safety_monitor.py')):
+        ld.add_action(
+            launch_ros.actions.Node(
+                package="kmr_communication",
+                executable="safety_monitor.py",
+                name="safety_monitor",
+                output="screen",
+                emulate_tty=True,
+                parameters=[{
+                    'check_interval': 0.1,
+                    'auto_reset': False,
+                    'auto_reset_delay': 5.0
+                }])
+        )
+    else:
+        print(f"Warning: safety_monitor.py not found in {lib_dir}, skipping.")
+        
+    if os.path.exists(os.path.join(lib_dir, 'communication_health_monitor.py')):
+        ld.add_action(
+            launch_ros.actions.Node(
+                package="kmr_communication",
+                executable="communication_health_monitor.py",
+                name="communication_health_monitor",
+                output="screen",
+                emulate_tty=True,
+                parameters=[{
+                    'check_interval': 1.0,
+                    'timeout_threshold': 600.0  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
+                }])
+        )
+    else:
+        print(f"Warning: communication_health_monitor.py not found in {lib_dir}, skipping.")
+        
+    return ld

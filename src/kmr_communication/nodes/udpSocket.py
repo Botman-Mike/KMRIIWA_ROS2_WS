@@ -49,8 +49,36 @@ class UDPSocket:
         self.ip = ip
         self.port = port
         self.udp = None
+        self.client_address = None
+        self.connection_lock = threading.Lock()
+        self.data_lock = threading.Lock()
+        self.max_reconnection_attempts = 5
+        self.reconnection_delay = 2  # seconds
+        self.last_heartbeat = time.time()
+        self.heartbeat_timeout = 15  # seconds - Extended to 15 seconds (3x the send rate)
+        self.running = True
+        self.startup_grace_period = 600  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
+        self.startup_time = time.time()
+        
+        # Add connection monitoring variables
+        self.connection_status_publisher = None
+        self.connection_status_timer = None
+        self.connection_check_interval = 5.0  # seconds
+        
+        # Tracking for which ROS node is using this socket 
+        self.ros_node = None
+        
+        # Track more detailed connection state
+        self.connection_state = {
+            'bound': False,              # Socket is bound to the port
+            'connected': False,          # Remote client has connected
+            'last_data_time': 0,         # Last time data was received
+            'bytes_received': 0,         # Total bytes received
+            'port': self.port,           # Port we're listening on
+            'protocol': 'UDP'            # Protocol type
+        }
 
-        #Data
+        # Data
         self.odometry = []
         self.laserScanB1 = []
         self.laserScanB4 = []
@@ -65,60 +93,156 @@ class UDPSocket:
         self.isconnected = False
 
     def connect_to_socket(self):
-
-        print(cl_cyan('Starting up node:'), self.node_name, 'IP:', self.ip, 'Port:', self.port)
-        try:
-            self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.udp.settimeout(0.1)
-            self.udp.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,1048576)
-            self.udp.bind((self.ip, self.port))
-        except:
-            print(cl_red('Error: ') + "Connection for KUKA cannot assign requested address/node:",self.node_name, self.ip, self.port)
-            os._exit(-1)
-
-
-        while (not self.isconnected):
+        """Connect to socket with retry mechanism"""
+        attempt = 0
+        
+        while self.running:
             try:
-                data, self.client_address = self.udp.recvfrom(self.BUFFER_SIZE)
-                self.isconnected = True
-            except:
-                t=0
-
-        self.udp.sendto("hello KUKA".encode('utf-8'), self.client_address)
-
-
-        timee = time.time() #For debugging purposes
-        count = 0
-        while self.isconnected:
-            try:
-                data, self.client_address = self.udp.recvfrom(self.BUFFER_SIZE)
-                data = data.decode('utf-8')
-                last_read_time = time.time()  # Keep received time
-                # Process the received data package
-                cmd_splt=data.split(">")[1].split()
-
-                if len(cmd_splt) and cmd_splt[0] == 'odometry':
-                    self.odometry = cmd_splt
-                if len(cmd_splt) and cmd_splt[0] == 'laserScan':
-                    if cmd_splt[2] == '1801':
-                        self.laserScanB1.append(cmd_splt)
-                        count = count + 1
-                    elif cmd_splt[2] == '1802':
-                        self.laserScanB4.append(cmd_splt)
-                        count = count + 1
-                if len(cmd_splt) and cmd_splt[0] == 'kmp_statusdata':
-                    self.kmp_statusdata = cmd_splt
-                if len(cmd_splt) and cmd_splt[0] == 'lbr_statusdata':
-                    self.lbr_statusdata = cmd_splt
-                if len(cmd_splt) and cmd_splt[0] == 'lbr_sensordata':
-                    self.lbr_sensordata.append(cmd_splt)
-
-            except:
-                t=0
-
-        print("SHUTTING DOWN")
-        self.udp.close()
-        print(cl_lightred('Connection is closed!'))
+                print(cl_cyan(f'Starting up node: {self.node_name}, IP: {self.ip}, Port: {self.port}'))
+                self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.udp.settimeout(600.0)  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
+                self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)  # Increased buffer
+                
+                try:
+                    self.udp.bind((self.ip, self.port))
+                    self.connection_state['bound'] = True
+                    print(cl_green(f"Successfully bound to port {self.port}"))
+                except socket.error as e:
+                    print(cl_red(f"Error binding to port {self.port}: {e}"))
+                    self.connection_state['bound'] = False
+                    raise e
+                
+                # Wait for initial data to establish connection
+                connection_wait_start = time.time()
+                while not self.isconnected and (time.time() - connection_wait_start) < 600:  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
+                    try:
+                        data, client_addr = self.udp.recvfrom(self.BUFFER_SIZE)
+                        if data:  # If we get any data, we consider ourselves connected
+                            with self.connection_lock:
+                                self.client_address = client_addr
+                                self.isconnected = True
+                                self.last_heartbeat = time.time()
+                            break
+                    except socket.timeout:
+                        continue
+                    except Exception as e:
+                        print(cl_red(f"Error during initial connection: {e}"))
+                        break
+                
+                if not self.isconnected:
+                    raise Exception("Timed out waiting for initial connection")
+                    
+                print(cl_green(f'Connected to client at {self.client_address}'))
+                # Send an initial hello message to confirm connection
+                self.udp.sendto("hello KUKA".encode('utf-8'), self.client_address)
+                attempt = 0  # Reset attempt counter on successful connection
+                
+                # Heartbeat sending thread (every 5 seconds as per protocol)
+                def send_heartbeat():
+                    while self.isconnected and self.running:
+                        try:
+                            if self.client_address:
+                                self.udp.sendto("heartbeat".encode('utf-8'), self.client_address)
+                        except:
+                            pass
+                        time.sleep(5)  # Send heartbeat every 5 seconds as specified in protocol
+                
+                # Start heartbeat thread
+                thread.start_new_thread(send_heartbeat, ())
+                
+                # Main data processing loop
+                while self.isconnected and self.running:
+                    try:
+                        data, addr = self.udp.recvfrom(self.BUFFER_SIZE)
+                        if data:
+                            self.last_heartbeat = time.time()  # Update heartbeat on successful receive
+                            self.connection_state['last_data_time'] = time.time()
+                            self.connection_state['bytes_received'] += len(data)
+                            
+                            # Log the size of incoming data for debugging
+                            print(f"Received UDP data of size {len(data)} bytes from {self.node_name}")
+                            
+                            # Try to decode as UTF-8, but handle binary data gracefully
+                            try:
+                                data_str = data.decode('utf-8')
+                                
+                                # Process the received data
+                                try:
+                                    # If it's just a heartbeat message, don't process further
+                                    if data_str.strip() in ["heartbeat", "ping", ""]:
+                                        continue
+                                        
+                                    cmd_splt = data_str.split(">")[1].split() if ">" in data_str else data_str.split()
+                                    
+                                    if not cmd_splt:  # Skip empty commands
+                                        continue
+                                        
+                                    with self.data_lock:
+                                        if cmd_splt[0] == 'odometry':
+                                            self.odometry = cmd_splt
+                                        elif cmd_splt[0] == 'laserScan':
+                                            if cmd_splt[2] == '1801':
+                                                self.laserScanB1.append(cmd_splt)
+                                            elif cmd_splt[2] == '1802':
+                                                self.laserScanB4.append(cmd_splt)
+                                        elif cmd_splt[0] == 'kmp_statusdata':
+                                            self.kmp_statusdata = cmd_splt
+                                        elif cmd_splt[0] == 'lbr_statusdata':
+                                            self.lbr_statusdata = cmd_splt
+                                        elif cmd_splt[0] == 'lbr_sensordata':
+                                            self.lbr_sensordata.append(cmd_splt)
+                                except Exception as e:
+                                    print(cl_yellow(f"Error processing command: {e}"))
+                                    # Don't break the connection for parsing errors
+                            except UnicodeDecodeError:
+                                # This is binary data, just use it as a heartbeat
+                                pass
+                    except socket.timeout:
+                        # Socket timeout is not an error, just continue
+                        continue
+                    except Exception as e:
+                        print(cl_yellow(f"Error receiving data: {e}"))
+                        with self.connection_lock:
+                            self.isconnected = False
+                        break
+                        
+            except Exception as e:
+                attempt += 1
+                err_type = type(e).__name__
+                print(cl_red(f'Connection attempt {attempt} failed: {err_type}: {e}'))
+                # Add more specific debugging for common errors
+                if isinstance(e, socket.error):
+                    if e.errno == 111:  # Connection refused
+                        print(cl_yellow(f"  → The robot may not be listening on this port yet"))
+                    elif e.errno == 110:  # Connection timeout
+                        print(cl_yellow(f"  → Network route exists but robot not responding"))
+                if attempt >= self.max_reconnection_attempts:
+                    print(cl_red(f'Maximum reconnection attempts reached. Waiting longer...'))
+                    time.sleep(self.reconnection_delay * 5)
+                    attempt = 0  # Reset counter but keep trying
+                else:
+                    time.sleep(self.reconnection_delay)
+                    
+                try:
+                    if self.udp:
+                        self.udp.close()
+                except:
+                    pass
+                
+            # If we get here, connection has been lost, try to clean up
+            print(cl_yellow(f"Connection lost, cleaning up..."))
+            with self.connection_lock:
+                try:
+                    if self.udp:
+                        self.udp.close()
+                except Exception as ex:
+                    print(cl_red(f"Error during cleanup: {ex}"))
+            
+            if not self.running:
+                break
+                
+            print(cl_yellow(f"Attempting to reconnect in {self.reconnection_delay} seconds..."))
+            time.sleep(self.reconnection_delay)
 
     # Each send command runs as a thread. May need to control the maximum running time (valid time to send a command).
     def send(self, cmd):
