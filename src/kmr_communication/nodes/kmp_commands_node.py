@@ -223,6 +223,21 @@ class KmpCommandsNode(Node):
         msg = f'setPose {data.position.x} {data.position.y} {data.orientation.z}'
         self.queue_command(msg)
 
+    def cmd_vel_callback(self, msg):
+        """Callback function for cmd_vel topic subscription"""
+        # Add debugging output
+        self.get_logger().info(f"Received cmd_vel: linear={msg.linear.x},{msg.linear.y},{msg.linear.z} angular={msg.angular.z}")
+        
+        # Check socket connection before sending
+        if not self.soc.isconnected:
+            self.get_logger().warning("Socket not connected, can't send velocity command")
+            return
+            
+        # ...existing code for handling the command and forwarding it to the socket...
+        
+        # After sending, log success
+        self.get_logger().info(f"Sent velocity command to robot: {cmd}")
+
 
 def main(argv=sys.argv[1:]):
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)

@@ -288,15 +288,24 @@ class TCPSocket:
                 continue
 
     def send(self, cmd):
-        """Thread-safe send command"""
-        if not self.isconnected:
+        """Thread-safe send command with verification"""
+        if not self.isconnected or not self.connection:
             print(cl_yellow(f"Cannot send command, not connected"))
             return False
-
+            
         try:
             with self.connection_lock:
                 if self.isconnected and self.connection:
-                    self.connection.sendall((cmd + '\r\n').encode("UTF-8"))
+                    # Debug output for all commands
+                    print(cl_green(f"Sending command: {cmd}"))
+                    
+                    # Format for the protocol: 10-digit length prefix + content
+                    length = str(len(cmd)).zfill(10)  # 10-digit length prefix
+                    message = length + cmd
+                    self.connection.sendall(message.encode('utf-8'))
+                    
+                    # Verify bytes were sent
+                    print(cl_green(f"Command sent successfully ({len(message)} bytes)"))
                     return True
                 return False
         except Exception as e:
