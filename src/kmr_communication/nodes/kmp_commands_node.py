@@ -16,9 +16,11 @@
 # limitations under the License.
 
 import sys
+import time
+import threading
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 from geometry_msgs.msg import Point, Pose, Quaternion, Twist, Vector3, TransformStamped
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.utilities import remove_ros_args
@@ -26,7 +28,6 @@ import argparse
 
 from tcpSocket import TCPSocket
 from udpSocket import UDPSocket
-
 
 
 def cl_red(msge): return '\033[31m' + msge + '\033[0m'
@@ -101,6 +102,52 @@ class KmpCommandsNode(Node):
         else:
             self.get_logger().warn('Initial connection timed out, will keep trying in background')
 
+    def safety_callback(self, msg):
+        """Handle safe-to-move status updates"""
+        self.safe_to_move = msg.data
+        self.get_logger().debug(f'Safe to move status updated: {self.safe_to_move}')
+
+    def estop_callback(self, msg):
+        """Handle emergency stop status updates"""
+        self.emergency_stop_active = msg.data
+        self.get_logger().debug(f'Emergency stop status updated: {self.emergency_stop_active}')
+        
+    def reset_callback(self, msg):
+        """Handle safety reset requests"""
+        if msg.data:
+            self.safe_to_move = True
+            self.get_logger().info('Safety system reset requested')
+    
+    def process_command_queue(self):
+        """Process commands in the queue and send to the robot"""
+        while rclpy.ok():
+            try:
+                # Process commands only when connected and safe
+                if self.soc.isconnected and self.safe_to_move and not self.emergency_stop_active:
+                    # Get next command from queue if available
+                    cmd = None
+                    with self.command_queue_lock:
+                        if self.command_queue:
+                            cmd = self.command_queue.pop(0)
+                    
+                    # Send command if we got one
+                    if cmd:
+                        self.get_logger().debug(f'Sending command: {cmd}')
+                        try:
+                            self.soc.send(cmd)
+                        except Exception as e:
+                            self.get_logger().error(f'Failed to send command: {e}')
+                            # Put command back in queue for retry
+                            with self.command_queue_lock:
+                                self.command_queue.insert(0, cmd)
+                
+                # Don't hog CPU
+                time.sleep(0.01)
+                
+            except Exception as e:
+                self.get_logger().error(f'Command processing error: {e}')
+                time.sleep(0.1)  # Prevent rapid error loops
+
     def connection_check_callback(self):
         """Periodically check connection status and publish it"""
         status_msg = Bool()
@@ -114,18 +161,28 @@ class KmpCommandsNode(Node):
             self.get_logger().warn('Robot connection is down')
 
     def shutdown_callback(self, data):
-        print(data)
+        """Handle shutdown requests"""
+        self.get_logger().info(f'Shutdown command received: {data.data}')
         msg = "shutdown"
-        self.soc.send(msg)
-        #self.udp_soc.isconnected = False
+        # Add to command queue
+        with self.command_queue_lock:
+            self.command_queue.append(msg)
 
     def twist_callback(self, data):
+        """Handle twist commands"""
+        self.get_logger().debug(f'Received twist command: {data}')
         msg = 'setTwist ' + str(data.linear.x) + " " + str(data.linear.y) + " " + str(data.angular.z)
-        self.soc.send(msg)
+        # Add to command queue instead of sending directly
+        with self.command_queue_lock:
+            self.command_queue.append(msg)
 
     def pose_callback(self, data):
+        """Handle pose commands"""
+        self.get_logger().debug(f'Received pose command: {data}')
         msg = 'setPose ' + str(data.position.x) + " " + str(data.position.y) + " " + str(data.orientation.z)
-        self.soc.send(msg)
+        # Add to command queue instead of sending directly
+        with self.command_queue_lock:
+            self.command_queue.append(msg)
 
 
 def main(argv=sys.argv[1:]):
