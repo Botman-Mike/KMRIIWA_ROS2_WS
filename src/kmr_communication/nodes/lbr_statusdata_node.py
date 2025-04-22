@@ -18,6 +18,7 @@
 import _thread as thread
 import sys
 import math
+import time
 import rclpy
 from rclpy.node import Node
 from kmr_msgs.msg import LbrStatusdata
@@ -63,25 +64,57 @@ class LbrStatusNode(Node):
 
         # Make Publisher for statusdata
         self.pub_lbr_statusdata = self.create_publisher(LbrStatusdata, 'lbr_statusdata', 10)
+        
+        # Connection status publisher
+        self.connection_status_pub = self.create_publisher(Bool, 'lbr_connected', 10)
 
-        while not self.soc.isconnected:
-            pass
-        self.get_logger().info('Node is ready')
+        # Wait for connection
+        connection_timeout = 600.0  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
+        start_time = time.time()
+        
+        self.get_logger().info('Waiting for initial connection...')
+        while not self.soc.isconnected and time.time() - start_time < connection_timeout:
+            time.sleep(0.1)
+            
+        if self.soc.isconnected:
+            self.get_logger().info('Node is ready')
+        else:
+            self.get_logger().warn('Initial connection timed out, will keep trying in background')
 
+        # Process data while connected
         while rclpy.ok() and self.soc.isconnected:
-            self.status_callback(self.pub_lbr_statusdata, self.soc.lbr_statusdata)
+            try:
+                self.status_callback(self.pub_lbr_statusdata, self.soc.lbr_statusdata)
+                time.sleep(0.01)  # Small sleep to prevent CPU hogging
+            except Exception as e:
+                self.get_logger().error(f"Error processing status data: {e}")
+                time.sleep(0.1)  # Prevent rapid error loops
 
 
 
-    def status_callback(self,status_publisher, data):
-        if data != None:
+    def status_callback(self, status_publisher, data):
+        if data is None or len(data) < 2:
+            return
+            
+        try:
             msg = LbrStatusdata()
             msg.header.stamp = self.get_clock().now().to_msg()
+            
+            # Validate data has expected format
             status_elements = data[1].split(",")
+            if len(status_elements) < 2:
+                return
+                
             if (status_elements[1] != self.last_status_timestamp):
                 self.last_status_timestamp = status_elements[1]
+                
                 for i in range(2, len(status_elements)):
                     split = status_elements[i].split(":")
+                    
+                    # Make sure we have both key and value
+                    if len(split) < 2:
+                        continue
+                        
                     if (split[0] == "ReadyToMove"):
                         if (split[1] == "true"):
                             msg.ready_to_move = True
@@ -104,7 +137,16 @@ class LbrStatusNode(Node):
                             msg.lbr_safetystop = True
                         else:
                             msg.lbr_safetystop = False
+                            
                 status_publisher.publish(msg)
+                
+                # Publish connection status
+                status_msg = Bool()
+                status_msg.data = True
+                self.connection_status_pub.publish(status_msg)
+                
+        except Exception as e:
+            self.get_logger().error(f"Error in status_callback: {e}")
 
 
 def main(argv=sys.argv[1:]):
