@@ -225,19 +225,35 @@ class KmpCommandsNode(Node):
 
     def cmd_vel_callback(self, msg):
         """Callback function for cmd_vel topic subscription"""
-        # Add debugging output
-        self.get_logger().info(f"Received cmd_vel: linear={msg.linear.x},{msg.linear.y},{msg.linear.z} angular={msg.angular.z}")
-        
-        # Check socket connection before sending
-        if not self.soc.isconnected:
-            self.get_logger().warning("Socket not connected, can't send velocity command")
-            return
-            
-        # ...existing code for handling the command and forwarding it to the socket...
-        
-        # After sending, log success
-        self.get_logger().info(f"Sent velocity command to robot: {cmd}")
+        try:
+            # Debug output to verify message is being received
+            self.get_logger().info(f"⭐ TWIST CMD RECEIVED: lin=({msg.linear.x:.4f},{msg.linear.y:.4f},{msg.linear.z:.4f}) " +
+                                  f"ang=({msg.angular.x:.4f},{msg.angular.y:.4f},{msg.angular.z:.4f})")
 
+            # Check if this is an actual movement command or just zeros
+            if abs(msg.linear.x) < 0.001 and abs(msg.linear.y) < 0.001 and abs(msg.angular.z) < 0.001:
+                self.get_logger().info("All values near zero, sending stop command")
+                
+            # Ensure socket is connected
+            if not self.soc.isconnected:
+                self.get_logger().error("❌ SOCKET NOT CONNECTED! Command discarded!")
+                return
+
+            # Format command according to protocol - using VERY explicit formatting
+            cmd = f"cmd_vel:{msg.linear.x:.6f}:{msg.linear.y:.6f}:{msg.angular.z:.6f}"
+            self.get_logger().info(f"🚀 Sending command: '{cmd}'")
+            
+            # Send and verify success
+            success = self.soc.send(cmd)
+            if success:
+                self.get_logger().info(f"✅ Command sent successfully: {cmd}")
+            else:
+                self.get_logger().error(f"❌ Failed to send command: {cmd}")
+                
+        except Exception as e:
+            self.get_logger().error(f"Exception in cmd_vel_callback: {str(e)}")
+            import traceback
+            self.get_logger().error(traceback.format_exc())
 
 def main(argv=sys.argv[1:]):
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)

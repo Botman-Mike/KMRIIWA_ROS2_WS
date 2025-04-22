@@ -141,49 +141,35 @@ class TCPSocket:
                 self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 server_address = (self.ip, self.port)
                 
-                # Add socket reuse option to prevent "Address already in use" errors
+                # Add socket options for better diagnostics
                 self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                # Set TCP keepalive properties if available
+                if hasattr(socket, 'TCP_KEEPIDLE'):
+                    self.tcp.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
+                if hasattr(socket, 'TCP_KEEPINTVL'):
+                    self.tcp.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+                if hasattr(socket, 'TCP_KEEPCNT'):
+                    self.tcp.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
                 
+                print(cl_cyan(f'Binding to {server_address}...'))
                 self.tcp.bind(server_address)
-                
-                # Increase backlog queue from default 3 to 10 to handle multiple connection attempts
                 self.tcp.listen(10)
+                self.tcp.settimeout(600)
                 
-                # Extend timeout for initial connection - 10 minutes as requested
-                self.tcp.settimeout(600)  
-                
-                print(cl_green(f'Socket bound and listening on {server_address}'))
+                print(cl_green(f'Successfully bound to {server_address}, waiting for connection...'))
                 
                 with self.connection_lock:
+                    print(cl_cyan(f'Waiting for client to connect on port {self.port}...'))
                     self.connection, client_address = self.tcp.accept()
+                    print(cl_green(f'Client connected from {client_address}'))
                     
-                    # Increase socket buffer sizes for performance
-                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)
-                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1048576)
-                    
-                    # Disable Nagle's algorithm for lower latency
+                    # Connection settings for better data flow
                     self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                    
-                    # Use keep-alive to detect connection loss
-                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                    
-                    # TCP keepalive on Linux - more aggressive to detect problems faster
-                    if hasattr(socket, 'TCP_KEEPIDLE'):
-                        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
-                    if hasattr(socket, 'TCP_KEEPINTVL'):
-                        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
-                    if hasattr(socket, 'TCP_KEEPCNT'):
-                        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
-                        
-                    # Set reasonable timeout for socket operations
-                    self.connection.settimeout(600)  # 10 minute operations timeout
+                    self.connection.settimeout(600)
                     self.isconnected = True
                     self.last_heartbeat = time.time()
-
-                print(cl_green(f'Connected to client at {client_address}'))
-                attempt = 0  # Reset attempt counter on successful connection
-                time.sleep(1)
-
+                
                 # Add heartbeat sending thread
                 def send_heartbeat():
                     last_heartbeat_send = 0
@@ -213,14 +199,20 @@ class TCPSocket:
                         data = self.connection.recv(self.BUFFER_SIZE)
                         if data:
                             self.last_heartbeat = time.time()
+                            data_len = len(data)
+                            print(cl_green(f"Received {data_len} bytes of data from client"))
                             
-                            # Try to decode as UTF-8, but handle binary data gracefully
+                            # Try to decode and log it for debugging
                             try:
                                 data_str = data.decode('utf-8').strip()
-                                
-                                # Check if this is a heartbeat-only message
+                                if data_len < 200:  # Only print short messages to avoid flooding
+                                    print(cl_green(f"Data content: {data_str}"))
+                                else:
+                                    print(cl_green(f"Data starts with: {data_str[:50]}..."))
+                                    
                                 if data_str in ["heartbeat", "ping", ""]:
-                                    continue  # Skip processing for heartbeat messages
+                                    print(cl_cyan("Received heartbeat message"))
+                                    continue
                                 
                                 # Process the received command
                                 for pack in data_str.split(">"):
@@ -240,26 +232,17 @@ class TCPSocket:
                                         self.lbr_sensordata.append(cmd_splt)
                                 
                             except UnicodeDecodeError:
-                                # If it can't be decoded as text, just use it as a heartbeat
-                                pass
+                                print(cl_yellow(f"Received binary data of {data_len} bytes"))
                         else:
-                            # Empty data means client disconnected
-                            print(cl_yellow(f"Client disconnected - empty data received"))
+                            print(cl_yellow(f"Received empty data, client may have disconnected"))
                             with self.connection_lock:
                                 self.isconnected = False
                             break
                             
                     except socket.timeout:
-                        # Socket timeout is not an error, just continue
                         continue
                     except Exception as e:
-                        print(cl_yellow(f"Error receiving data: {e}"))
-                        if not self.running:
-                            break
-                            
-                        # Don't immediately disconnect on errors
-                        print(cl_yellow(f"Will attempt to continue..."))
-                        time.sleep(1)
+                        print(cl_yellow(f"Error receiving data: {type(e).__name__}: {e}"))
                         continue
                         
             except socket.error as e:
@@ -290,22 +273,27 @@ class TCPSocket:
     def send(self, cmd):
         """Thread-safe send command with verification"""
         if not self.isconnected or not self.connection:
-            print(cl_yellow(f"Cannot send command, not connected"))
+            print(cl_red(f"Cannot send command, not connected: {cmd}"))
             return False
             
         try:
             with self.connection_lock:
                 if self.isconnected and self.connection:
-                    # Debug output for all commands
-                    print(cl_green(f"Sending command: {cmd}"))
+                    # Special highlighting for movement commands
+                    is_movement = "cmd_vel" in cmd
+                    prefix = cl_green("MOVEMENT:") if is_movement else cl_cyan("SENDING:")
+                    print(f"{prefix} {cmd}")
                     
                     # Format for the protocol: 10-digit length prefix + content
                     length = str(len(cmd)).zfill(10)  # 10-digit length prefix
                     message = length + cmd
-                    self.connection.sendall(message.encode('utf-8'))
                     
-                    # Verify bytes were sent
-                    print(cl_green(f"Command sent successfully ({len(message)} bytes)"))
+                    # Log exact byte representation for debugging
+                    message_bytes = message.encode('utf-8')
+                    print(f"Raw bytes [{len(message_bytes)}]: {message_bytes}")
+                    
+                    # Actually send the data
+                    self.connection.sendall(message_bytes)
                     return True
                 return False
         except Exception as e:
