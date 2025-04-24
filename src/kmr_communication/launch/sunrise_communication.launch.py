@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import shutil  # Import shutil to check for executables
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -25,6 +26,16 @@ import launch_ros.actions
 
 
 def generate_launch_description():
+
+    # Check if taskset is available and set prefix accordingly
+    taskset_path = shutil.which('taskset')
+    launch_prefix = ''
+    if taskset_path:
+        print(f"Taskset found at {taskset_path}, applying P-core pinning (0-7).")
+        # Note the trailing space in the prefix
+        launch_prefix = 'taskset -c 0-7 ' 
+    else:
+        print("Taskset command not found, skipping core pinning.")
 
     connection_type_TCP = 'TCP'
     connection_type_UDP = 'UDP'
@@ -87,6 +98,7 @@ def generate_launch_description():
             name="kmp_commands_node",
             output="screen",
             emulate_tty=True,
+            prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_TCP,'-ro', robot_name],
             parameters=[param_dir, {'port': 30002, 'ip': bind_ip, 'robot_ip': robot_ip, 'respect_safety': True}]),
 
@@ -96,6 +108,7 @@ def generate_launch_description():
            name="kmp_laserscan_node",
            output="screen",
            emulate_tty=True,
+           prefix=launch_prefix,  # Add prefix here
            arguments=['-c', connection_type_UDP, '-ro', robot_name],
            parameters=[param_dir, {'port': 30003, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
@@ -105,6 +118,7 @@ def generate_launch_description():
            name="kmp_odometry_node",
            output="screen",
            emulate_tty=True,
+           prefix=launch_prefix,  # Add prefix here
            arguments=['-c', connection_type_UDP,'-ro', robot_name],
            parameters=[param_dir, {'port': 30004, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
@@ -114,6 +128,7 @@ def generate_launch_description():
            name="kmp_statusdata_node",
            output="screen",
            emulate_tty=True,
+           prefix=launch_prefix,  # Add prefix here
            arguments=['-c', connection_type_TCP, '-ro', robot_name],
            parameters=[param_dir, {'port': 30001, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
@@ -123,6 +138,7 @@ def generate_launch_description():
             name="lbr_commands_node",
             output="screen",
             emulate_tty=True,
+            prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_TCP, '-ro', robot_name],
             parameters=[param_dir, {'port': 30005, 'ip': bind_ip, 'robot_ip': robot_ip, 'respect_safety': True}]),
 
@@ -132,6 +148,7 @@ def generate_launch_description():
             name="lbr_statusdata_node",
             output="screen",
             emulate_tty=True,
+            prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_TCP, '-ro', robot_name],
             parameters=[param_dir, {'port': 30006, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
@@ -141,6 +158,7 @@ def generate_launch_description():
             name="lbr_sensordata_node",
             output="screen",
             emulate_tty=True,
+            prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_UDP, '-ro', robot_name],
             parameters=[param_dir, {'port': 30007, 'ip': bind_ip, 'robot_ip': robot_ip}]),
     ])

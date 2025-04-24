@@ -1,5 +1,6 @@
 import os
 import yaml
+import shutil  # Import shutil to check for executables
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
@@ -25,6 +26,18 @@ def load_yaml(package_name, file_path):
         return None
 
 def generate_launch_description():
+    # Check if taskset is available and set prefix accordingly
+    taskset_path = shutil.which('taskset')
+    p_core_prefix = ''
+    e_core_prefix = ''
+    if taskset_path:
+        print(f"Taskset found at {taskset_path}, applying core pinning.")
+        # Note the trailing space in the prefixes
+        p_core_prefix = 'taskset -c 0-7 ' 
+        e_core_prefix = 'taskset -c 8-19 '
+    else:
+        print("Taskset command not found, skipping core pinning.")
+
     # Load configuration files from kmr_moveit2 and kmr_bringup
     moveit_cpp_yaml_file = os.path.join(get_package_share_directory('kmr_moveit2'),
                                           "config", "moveit_cpp.yaml")
@@ -60,6 +73,7 @@ default_planner_request_adapters/FixStartStatePathConstraints""",
         name='run_moveit',
         package='kmr_moveit2',
         executable='run_moveit',
+        prefix=p_core_prefix,  # Add P-core prefix here
         output='screen',
         emulate_tty=True,
         parameters=[moveit_cpp_yaml_file,
@@ -77,6 +91,7 @@ default_planner_request_adapters/FixStartStatePathConstraints""",
         package='rviz2',
         executable='rviz2',
         name='rviz2',
+        prefix=e_core_prefix,  # Add E-core prefix here
         output='screen',
         arguments=['-d', rviz_config_file],
         parameters=[robot_description]
@@ -95,6 +110,7 @@ default_planner_request_adapters/FixStartStatePathConstraints""",
     fake_joint_driver_node = Node(
         package='fake_joint_driver',
         executable='fake_joint_driver_node',
+        prefix=p_core_prefix,  # Add P-core prefix here
         parameters=[os.path.join(get_package_share_directory("kmr_moveit2"), "config", "iiwa_controllers.yaml"),
                     os.path.join(get_package_share_directory("kmr_moveit2"), "config", "start_positions.yaml"),
                     robot_description],

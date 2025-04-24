@@ -136,7 +136,7 @@ class TCPSocket:
                                         # Format according to protocol: 10-digit length prefix + "heartbeat"
                                         msg = "heartbeat"
                                         length = str(len(msg)).zfill(10)  # 10-digit length prefix
-                                        heartbeat_msg = length + msg
+                                        heartbeat_msg = length + " " + msg
                                         self.connection.sendall(heartbeat_msg.encode("UTF-8"))
                                         last_heartbeat_send = current_time
                         except Exception as e:
@@ -149,13 +149,13 @@ class TCPSocket:
                 # Main data processing loop
                 while self.isconnected and self.running:
                     try:
-                        data = self.connection.recv(self.BUFFER_SIZE)
-                        if data:
+                        msg = self.recvmsg()
+                        if msg:
                             self.last_heartbeat = time.time()
                             
                             # Try to decode as UTF-8, but handle binary data gracefully
                             try:
-                                data_str = data.decode('utf-8').strip()
+                                data_str = msg.decode('utf-8').strip()
                                 
                                 # Check if this is a heartbeat-only message
                                 if data_str in ["heartbeat", "ping", ""]:
@@ -228,29 +228,32 @@ class TCPSocket:
 
     def send(self, cmd):
         try:
-            self.connection.sendall((cmd + '\r\n').encode("UTF-8"))
+            msg = cmd + '\r\n'
+            length = str(len(msg)).zfill(10)
+            msg_with_prefix = length + " " + msg
+            self.connection.sendall(msg_with_prefix.encode("UTF-8"))
         except:
             print(cl_red('Error: ') + "sending message thread failed")
 
     def recvmsg(self):
-        header_len = 10
-        msglength=0
-
-        byt_len = ""
-        byt_len = self.connection.recv(header_len)
-        diff_header = header_len - len(byt_len)
-        while (diff_header > 0):
-            byt_len.extend(self.connection.recv(diff_header))
-            diff_header= header_len-len(byt_len)
-
-        msglength = int(byt_len.decode("utf-8")) + 1   #include crocodile and space
-        msg = ""
-
-        if(msglength>0 and msglength<5000):
-            msg = self.connection.recv(msglength)
-            diff_msg = msglength - len(msg)
-            while(diff_msg>0):
-                newmsg = self.connection.recv(diff_msg)
-                msg.extend(newmsg)
-                diff_msg = msglength - len(msg)
+        header_len = 11  # 10 for length, 1 for space
+        byt_len = b""
+        while len(byt_len) < header_len:
+            chunk = self.connection.recv(header_len - len(byt_len))
+            if not chunk:
+                return b""
+            byt_len += chunk
+        length_str = byt_len[:10].decode("utf-8")
+        try:
+            msglength = int(length_str)
+        except ValueError:
+            print(cl_red(f"Invalid message length header: {length_str}"))
+            return b""
+        # skip the space (already read in byt_len[10])
+        msg = b""
+        while len(msg) < msglength:
+            chunk = self.connection.recv(msglength - len(msg))
+            if not chunk:
+                break
+            msg += chunk
         return msg

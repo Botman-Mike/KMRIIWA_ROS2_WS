@@ -15,6 +15,7 @@
 
 
 import os
+import shutil  # Import shutil to check for executables
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -24,6 +25,18 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 def generate_launch_description():
+    # Check if taskset is available and set prefix accordingly
+    taskset_path = shutil.which('taskset')
+    p_core_prefix = ''
+    e_core_prefix = ''
+    if taskset_path:
+        print(f"Taskset found at {taskset_path}, applying core pinning.")
+        # Note the trailing space in the prefixes
+        p_core_prefix = 'taskset -c 0-7 ' 
+        e_core_prefix = 'taskset -c 8-19 '
+    else:
+        print("Taskset command not found, skipping core pinning.")
+
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
     map_dir = LaunchConfiguration(
         'map',
@@ -90,6 +103,7 @@ def generate_launch_description():
             package='rviz2',
             executable='rviz2',
             name='rviz2',
+            prefix=e_core_prefix, # Add E-core prefix here
             arguments=['-d', rviz_config_dir],
             parameters=[{'use_sim_time': use_sim_time}],
             #output='screen'
