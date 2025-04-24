@@ -1,0 +1,67 @@
+[taskset-8] Received UDP data of size 9 bytes from lbr_sensordate_node
+[taskset-4] Received UDP data of size 9 bytes from kmp_odometry_node
+[taskset-3] Received UDP data of size 9 bytes from kmp_laserscan_node
+[taskset-2] [WARN] [1745514282.411973866] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514283.412124616] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514284.411975414] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514285.412130217] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514286.411967579] [kmp_commands_node]: Robot connection is down
+[taskset-3] Received UDP data of size 9 bytes from kmp_laserscan_node
+[taskset-4] Received UDP data of size 9 bytes from kmp_odometry_node
+[taskset-8] Received UDP data of size 9 bytes from lbr_sensordate_node
+[taskset-2] [WARN] [1745514287.412131931] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514288.411995552] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514289.412122575] [kmp_commands_node]: Robot connection is down
+[taskset-2] Connected to client at ('172.31.1.10', 18019)
+[taskset-6] Connected to client at ('172.31.1.10', 18020)
+[taskset-7] Connected to client at ('172.31.1.10', 18021)
+[taskset-5] Connected to client at ('172.31.1.10', 18022)
+[taskset-2] Invalid message length header: heartbeat
+[taskset-2] 
+[taskset-2] Client disconnected - empty data received
+[taskset-2] Starting up node: kmp_commands_node, IP: 172.31.1.206, Port: 30002
+[taskset-2] Socket bound and listening on ('172.31.1.206', 30002)
+[taskset-6] Invalid message length header: heartbeat
+[taskset-6] 
+[taskset-6] Client disconnected - empty data received
+[taskset-6] Starting up node: lbr_commands_node, IP: 172.31.1.206, Port: 30005
+[taskset-6] Socket bound and listening on ('172.31.1.206', 30005)
+[taskset-7] Invalid message length header: heartbeat
+[taskset-7] 
+[taskset-7] Client disconnected - empty data received
+[taskset-7] Starting up node: lbr_statusdata_node, IP: 172.31.1.206, Port: 30006
+[taskset-7] Socket bound and listening on ('172.31.1.206', 30006)
+[taskset-5] Invalid message length header: heartbeat
+[taskset-5] 
+[taskset-5] Client disconnected - empty data received
+[taskset-5] Starting up node: kmp_statusdata_node, IP: 172.31.1.206, Port: 30001
+[taskset-5] Socket bound and listening on ('172.31.1.206', 30001)
+[taskset-2] [WARN] [1745514291.412125162] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514292.411972482] [kmp_commands_node]: Robot connection is down
+[taskset-4] Received UDP data of size 9 bytes from kmp_odometry_node
+[taskset-8] Received UDP data of size 9 bytes from lbr_sensordate_node
+[taskset-3] Received UDP data of size 9 bytes from kmp_laserscan_node
+[taskset-2] [WARN] [1745514293.412130736] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514294.411971848] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514295.412112344] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514296.411989554] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514297.412125646] [kmp_commands_node]: Robot connection is down
+[taskset-3] Received UDP data of size 9 bytes from kmp_laserscan_node
+[taskset-4] Received UDP data of size 9 bytes from kmp_odometry_node
+[taskset-8] Received UDP data of size 9 bytes from lbr_sensordate_node
+[taskset-2] [WARN] [1745514298.411979966] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514299.412129134] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514300.411969389] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514301.412118058] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514302.411979897] [kmp_commands_node]: Robot connection is down
+[taskset-3] Received UDP data of size 9 bytes from kmp_laserscan_node
+[taskset-4] Received UDP data of size 9 bytes from kmp_odometry_node
+[taskset-8] Received UDP data of size 9 bytes from lbr_sensordate_node
+[taskset-2] [WARN] [1745514303.412130887] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514304.411979332] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514305.412119182] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514306.411974493] [kmp_commands_node]: Robot connection is down
+[taskset-2] [WARN] [1745514307.412139354] [kmp_commands_node]: Robot connection is down
+[taskset-3] Received UDP data of size 9 bytes from kmp_laserscan_node
+[taskset-4] Received UDP data of size 9 bytes from kmp_odometry_node
+[taskset-8] Received UDP data of size 9 bytes from lbr_sensordate_node
