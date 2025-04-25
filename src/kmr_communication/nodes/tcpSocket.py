@@ -68,7 +68,14 @@ class TCPSocket:
         threading.Thread(target=self.connect_to_socket).start()
 
     def close(self):
+        print(cl_yellow(f"[DEBUG] close() called for {self.node_name}, isconnected={self.isconnected}, running={self.running}"))
         self.isconnected = False
+        if self.connection:
+            try:
+                self.connection.close()
+                print(cl_yellow(f"[DEBUG] Socket closed for {self.node_name}"))
+            except Exception as e:
+                print(cl_red(f"[DEBUG] Exception during socket close: {e}"))
 
     def connect_to_socket(self):
         """Connect to socket with retry mechanism"""
@@ -182,17 +189,23 @@ class TCPSocket:
                                 # If it can't be decoded as text, just use it as a heartbeat
                                 pass
                         else:
-                            # Empty data means client disconnected
                             print(cl_yellow(f"Client disconnected - empty data received"))
+                            print(cl_yellow(f"[DEBUG] In main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
                             with self.connection_lock:
                                 self.isconnected = False
+                                if self.connection:
+                                    try:
+                                        self.connection.close()
+                                        print(cl_yellow(f"[DEBUG] Socket closed after empty data for {self.node_name}"))
+                                    except Exception as e:
+                                        print(cl_red(f"[DEBUG] Exception during socket close after empty data: {e}"))
                             break
                             
                     except socket.timeout:
-                        # Socket timeout is not an error, just continue
                         continue
                     except Exception as e:
                         print(cl_yellow(f"Error receiving data: {e}"))
+                        print(cl_yellow(f"[DEBUG] Exception in main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
                         if not self.running:
                             break
                             
@@ -244,6 +257,7 @@ class TCPSocket:
                 return b""
             byt_len += chunk
         length_str = byt_len[:10].decode("utf-8")
+        print(cl_cyan(f"[DEBUG] Received header: '{length_str}' (raw: {byt_len[:10]})"))
         try:
             msglength = int(length_str)
         except ValueError:
@@ -256,4 +270,5 @@ class TCPSocket:
             if not chunk:
                 break
             msg += chunk
+        print(cl_cyan(f"[DEBUG] Received message body: '{msg[:50]}' (length: {len(msg)})"))
         return msg
