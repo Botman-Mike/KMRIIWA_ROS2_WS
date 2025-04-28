@@ -66,12 +66,10 @@ class KmpOdometryNode(Node):
 
         # Create tf broadcaster
         self.tf_broadcaster = TransformBroadcaster(self)
+        self.create_timer(0.05, self.poll_odometry)
 
-        while not self.soc.isconnected:
-            pass
-        self.get_logger().info('Node is ready')
-
-        while rclpy.ok() and self.soc.isconnected:
+    def poll_odometry(self):
+        if self.soc and self.soc.isconnected and self.soc.odometry:
             self.odom_callback(self.pub_odometry, self.soc.odometry)
 
     def odom_callback(self, publisher, values):
@@ -151,7 +149,7 @@ def main(argv=sys.argv[1:]):
     rclpy.init(args=argv)
     odometry_node = KmpOdometryNode(args.connection,args.robot)
 
-    rclpy.spin(odometry_node)  # Changed from while loop to simple spin
+    rclpy.spin(odometry_node)
     try:
         odometry_node.destroy_node()
         rclpy.shutdown()

@@ -60,13 +60,11 @@ class KmpStatusNode(Node):
 
         # Make Publisher for statusdata
         self.pub_kmp_statusdata = self.create_publisher(KmpStatusdata, 'kmp_statusdata', 10)
+        # Start a timer to poll for data if connected
+        self.create_timer(0.05, self.poll_statusdata)
 
-
-        while not self.soc.isconnected:
-            pass
-        self.get_logger().info('Node is ready')
-
-        while rclpy.ok() and self.soc.isconnected:
+    def poll_statusdata(self):
+        if self.soc and self.soc.isconnected and self.soc.kmp_statusdata:
             self.status_callback(self.pub_kmp_statusdata, self.soc.kmp_statusdata)
 
     def status_callback(self,publisher,data):

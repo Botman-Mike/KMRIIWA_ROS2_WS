@@ -68,29 +68,14 @@ class LbrStatusNode(Node):
         # Connection status publisher
         self.connection_status_pub = self.create_publisher(Bool, 'lbr_connected', 10)
 
-        # Wait for connection
-        connection_timeout = 600.0  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
-        start_time = time.time()
-        
-        self.get_logger().info('Waiting for initial connection...')
-        while not self.soc.isconnected and time.time() - start_time < connection_timeout:
-            time.sleep(0.1)
-            
-        if self.soc.isconnected:
-            self.get_logger().info('Node is ready')
-        else:
-            self.get_logger().warn('Initial connection timed out, will keep trying in background')
+        self.create_timer(0.05, self.poll_statusdata)
 
-        # Process data while connected
-        while rclpy.ok() and self.soc.isconnected:
+    def poll_statusdata(self):
+        if self.soc and self.soc.isconnected and self.soc.lbr_statusdata:
             try:
                 self.status_callback(self.pub_lbr_statusdata, self.soc.lbr_statusdata)
-                time.sleep(0.01)  # Small sleep to prevent CPU hogging
             except Exception as e:
                 self.get_logger().error(f"Error processing status data: {e}")
-                time.sleep(0.1)  # Prevent rapid error loops
-
-
 
     def status_callback(self, status_publisher, data):
         if data is None or len(data) < 2:
