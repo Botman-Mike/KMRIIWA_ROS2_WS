@@ -71,20 +71,14 @@ class KmpLaserScanNode(Node):
         # Make Publishers for relevant data
         self.pub_laserscan1 = self.create_publisher(LaserScan, 'scan', qos_profile_sensor_data)
         self.pub_laserscan2 = self.create_publisher(LaserScan, 'scan_2', qos_profile_sensor_data)
+        self.create_timer(0.05, self.poll_laserscan)
 
-
-        while not self.soc.isconnected:
-        	pass
-        self.get_logger().info('Node is ready')
-
-
-        while rclpy.ok() and self.soc.isconnected:
+    def poll_laserscan(self):
+        if self.soc and self.soc.isconnected:
             if len(self.soc.laserScanB1):
                 self.scan_callback(self.pub_laserscan1, self.soc.laserScanB1.pop(0))
             if len(self.soc.laserScanB4):
                 self.scan_callback(self.pub_laserscan2, self.soc.laserScanB4.pop(0))
-
-
 
     def scan_callback(self, publisher, values):
         if (len(values) == 4 and values[1] != self.last_scan_timestamp):
