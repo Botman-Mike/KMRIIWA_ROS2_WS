@@ -26,6 +26,7 @@ from builtin_interfaces.msg import Time
 from rclpy.qos import qos_profile_sensor_data
 from tcpSocket import TCPSocket
 from udpSocket import UDPSocket
+from std_msgs.msg import Bool
 
 from rclpy.utilities import remove_ros_args
 import argparse
@@ -60,6 +61,9 @@ class KmpStatusNode(Node):
 
         # Make Publisher for statusdata
         self.pub_kmp_statusdata = self.create_publisher(KmpStatusdata, 'kmp_statusdata', 10)
+        # Connection status publisher (for diagnostics, like LBR node)
+        self.connection_status_pub = self.create_publisher(Bool, 'kmp_connected', 10)
+        self.create_timer(1.0, self.publish_connection_status)
         # Start a timer to poll for data if connected
         self.create_timer(0.05, self.poll_statusdata)
 
@@ -105,8 +109,10 @@ class KmpStatusNode(Node):
                             msg.kmp_safetystop = False
                 publisher.publish(msg)
 
-
-
+    def publish_connection_status(self):
+        msg = Bool()
+        msg.data = self.soc.isconnected if self.soc else False
+        self.connection_status_pub.publish(msg)
 
 
 def main(argv=sys.argv[1:]):

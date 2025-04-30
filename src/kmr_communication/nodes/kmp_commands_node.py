@@ -60,6 +60,9 @@ class KmpCommandsNode(Node):
 
         # Create publishers for connection status
         self.connection_status_pub = self.create_publisher(Bool, 'robot_connected', 10)
+        # Connection status publisher (for diagnostics, like LBR node)
+        self.connection_status_pub = self.create_publisher(Bool, 'kmp_connected', 10)
+        self.create_timer(1.0, self.publish_connection_status)
         
         # Track robot safety status
         self.safe_to_move = True
@@ -159,6 +162,11 @@ class KmpCommandsNode(Node):
             self.get_logger().debug('Robot connection is active')
         else:
             self.get_logger().warn('Robot connection is down')
+
+    def publish_connection_status(self):
+        msg = Bool()
+        msg.data = self.soc.isconnected if self.soc else False
+        self.connection_status_pub.publish(msg)
 
     def shutdown_callback(self, data):
         """Handle shutdown requests"""

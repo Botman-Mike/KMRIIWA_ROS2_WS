@@ -93,6 +93,16 @@ def generate_launch_description():
 #           ),
 
         launch_ros.actions.Node(
+           package="kmr_communication",
+           executable="kmp_statusdata_node.py",
+           name="kmp_statusdata_node",
+           output="screen",
+           emulate_tty=True,
+           prefix=launch_prefix,  # Add prefix here
+           arguments=['-c', connection_type_TCP, '-ro', robot_name],
+           parameters=[param_dir, {'port': 30001, 'ip': bind_ip, 'robot_ip': robot_ip}]),
+
+        launch_ros.actions.Node(
             package="kmr_communication",
             executable="kmp_commands_node.py",
             name="kmp_commands_node",
@@ -122,15 +132,6 @@ def generate_launch_description():
            arguments=['-c', connection_type_UDP,'-ro', robot_name],
            parameters=[param_dir, {'port': 30004, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
-        launch_ros.actions.Node(
-           package="kmr_communication",
-           executable="kmp_statusdata_node.py",
-           name="kmp_statusdata_node",
-           output="screen",
-           emulate_tty=True,
-           prefix=launch_prefix,  # Add prefix here
-           arguments=['-c', connection_type_TCP, '-ro', robot_name],
-           parameters=[param_dir, {'port': 30001, 'ip': bind_ip, 'robot_ip': robot_ip}]),
 
         launch_ros.actions.Node(
             package="kmr_communication",

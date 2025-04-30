@@ -199,6 +199,8 @@ class TCPSocket:
                                         print(cl_yellow(f"[DEBUG] Socket closed after empty data for {self.node_name}"))
                                     except Exception as e:
                                         print(cl_red(f"[DEBUG] Exception during socket close after empty data: {e}"))
+                            # NEW: Log reason for disconnect
+                            print(cl_red(f"[DISCONNECT] Reason: Received empty data (peer closed connection) in {self.node_name}"))
                             break
                             
                     except socket.timeout:
@@ -206,6 +208,8 @@ class TCPSocket:
                     except Exception as e:
                         print(cl_yellow(f"Error receiving data: {e}"))
                         print(cl_yellow(f"[DEBUG] Exception in main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
+                        # NEW: Log reason for disconnect
+                        print(cl_red(f"[DISCONNECT] Reason: Exception in main loop: {e} in {self.node_name}"))
                         if not self.running:
                             break
                             
@@ -224,6 +228,8 @@ class TCPSocket:
                         print(cl_yellow(f"  → The robot may not be listening on this port yet"))
                     elif e.errno == 110:  # Connection timeout
                         print(cl_yellow(f"  → Network route exists but robot not responding"))
+                # NEW: Log reason for disconnect
+                print(cl_red(f"[DISCONNECT] Reason: socket.error during connect: {e} in {self.node_name}"))
                 if attempt >= self.max_reconnection_attempts:
                     print(cl_red(f'Maximum reconnection attempts reached. Waiting longer...'))
                     time.sleep(self.reconnection_delay * 5)
@@ -254,6 +260,7 @@ class TCPSocket:
         while len(byt_len) < header_len:
             chunk = self.connection.recv(header_len - len(byt_len))
             if not chunk:
+                print(cl_red(f"[DISCONNECT] Reason: Connection closed while reading header in {self.node_name}"))
                 return b""
             byt_len += chunk
         length_str = byt_len[:10].decode("utf-8")
@@ -262,12 +269,14 @@ class TCPSocket:
             msglength = int(length_str)
         except ValueError:
             print(cl_red(f"Invalid message length header: {length_str}"))
+            print(cl_red(f"[DISCONNECT] Reason: Invalid message length header '{length_str}' in {self.node_name}"))
             return b""
         # skip the space (already read in byt_len[10])
         msg = b""
         while len(msg) < msglength:
             chunk = self.connection.recv(msglength - len(msg))
             if not chunk:
+                print(cl_red(f"[DISCONNECT] Reason: Connection closed while reading message body in {self.node_name}"))
                 break
             msg += chunk
         print(cl_cyan(f"[DEBUG] Received message body: '{msg[:50]}' (length: {len(msg)})"))
