@@ -200,6 +200,28 @@ class TCPSocket:
                             
                     except socket.timeout:
                         continue
+                    # Handle socket errors specifically before other exceptions
+                    except socket.error as e:
+                        err_type = type(e).__name__
+                        print(cl_yellow(f'Connection error: {err_type}: {e}'))
+                        attempt += 1
+                        if e.errno == 111:
+                            print(cl_yellow(f"  → The robot may not be listening on this port yet"))
+                        elif e.errno == 110:
+                            print(cl_yellow(f"  → Network route exists but robot not responding"))
+                        print(cl_red(f"[DISCONNECT] Reason: socket.error during connect: {e} in {self.node_name}"))
+                        if attempt >= self.max_reconnection_attempts:
+                            print(cl_red(f'Maximum reconnection attempts reached. Waiting longer...'))
+                            time.sleep(self.reconnection_delay * 5)
+                            attempt = 0
+                        else:
+                            time.sleep(self.reconnection_delay)
+                        try:
+                            if self.tcp:
+                                self.tcp.close()
+                        except:
+                            pass
+                        continue
                     except Exception as e:
                         print(cl_yellow(f"Error receiving data: {e}"))
                         print(cl_yellow(f"[DEBUG] Exception in main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
@@ -213,31 +235,17 @@ class TCPSocket:
                         time.sleep(1)
                         continue
                         
-            except socket.error as e:
-                err_type = type(e).__name__
-                print(cl_yellow(f'Connection error: {err_type}: {e}'))
-                attempt += 1
-                # Add more specific debugging for common errors
-                if isinstance(e, socket.error):
-                    if e.errno == 111:  # Connection refused
-                        print(cl_yellow(f"  → The robot may not be listening on this port yet"))
-                    elif e.errno == 110:  # Connection timeout
-                        print(cl_yellow(f"  → Network route exists but robot not responding"))
+            except Exception as e:
+                print(cl_yellow(f"Error receiving data: {e}"))
+                print(cl_yellow(f"[DEBUG] Exception in main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
                 # NEW: Log reason for disconnect
-                print(cl_red(f"[DISCONNECT] Reason: socket.error during connect: {e} in {self.node_name}"))
-                if attempt >= self.max_reconnection_attempts:
-                    print(cl_red(f'Maximum reconnection attempts reached. Waiting longer...'))
-                    time.sleep(self.reconnection_delay * 5)
-                    attempt = 0  # Reset counter but keep trying
-                else:
-                    time.sleep(self.reconnection_delay)
-                
-                try:
-                    if self.tcp:
-                        self.tcp.close()
-                except:
-                    pass
-                
+                print(cl_red(f"[DISCONNECT] Reason: Exception in main loop: {e} in {self.node_name}"))
+                if not self.running:
+                    break
+                    
+                # Don't immediately disconnect on errors
+                print(cl_yellow(f"Will attempt to continue..."))
+                time.sleep(1)
                 continue
 
     def send(self, cmd):
