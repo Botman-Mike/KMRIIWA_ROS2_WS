@@ -103,6 +103,9 @@ class TCPSocket:
                 print(cl_cyan(f'Waiting for connections on {self.ip}:{self.port}'))
                 with self.connection_lock:
                     self.connection, client_address = self.listen_socket.accept()
+            except Exception as e:
+                print(cl_red(f"Error while accepting connection: {e}"))
+                continue
 
                 # Increase socket buffer sizes for performance
                 self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)
