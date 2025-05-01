@@ -61,8 +61,18 @@ class LbrCommandsNode(Node):
 
         if connection_type == 'TCP':
             self.soc = TCPSocket(ip,port,self.name)
+            # Register socket close on shutdown, with fallback
+            try:
+                self.add_on_shutdown_callback(self.soc.close)
+            except AttributeError:
+                rclpy.get_default_context().on_shutdown(self.soc.close)
         elif connection_type == 'UDP':
             self.soc = UDPSocket(ip,port,self.name)
+            # Register socket close on shutdown, with fallback
+            try:
+                self.add_on_shutdown_callback(self.soc.close)
+            except AttributeError:
+                rclpy.get_default_context().on_shutdown(self.soc.close)
         else:
             self.soc = None
 
@@ -279,6 +289,11 @@ def main(argv=sys.argv[1:]):
 
     executor = MultiThreadedExecutor()
     rclpy.spin(lbr_commands_node, executor)
+    # Ensure socket closed before shutdown
+    try:
+        lbr_commands_node.soc.close()
+    except Exception:
+        pass
 
     try:
         lbr_commands_node.destroy_node()

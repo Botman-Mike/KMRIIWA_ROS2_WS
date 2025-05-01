@@ -56,8 +56,18 @@ class LbrStatusNode(Node):
 
         if connection_type == 'TCP':
             self.soc = TCPSocket(ip,port,self.name)
+            # Register socket close on shutdown, with fallback
+            try:
+                self.add_on_shutdown_callback(self.soc.close)
+            except AttributeError:
+                rclpy.get_default_context().on_shutdown(self.soc.close)
         elif connection_type == 'UDP':
-            self.soc=UDPSocket(ip,port,self.name)
+            self.soc = UDPSocket(ip,port,self.name)
+            # Register socket close on shutdown, with fallback
+            try:
+                self.add_on_shutdown_callback(self.soc.close)
+            except AttributeError:
+                rclpy.get_default_context().on_shutdown(self.soc.close)
         else:
             self.soc=None
 
@@ -144,7 +154,11 @@ def main(argv=sys.argv[1:]):
     lbr_statusdata_node = LbrStatusNode(args.connection,args.robot)
 
     rclpy.spin(lbr_statusdata_node)
-
+    # Ensure socket closed before shutdown
+    try:
+        lbr_statusdata_node.soc.close()
+    except Exception:
+        pass
 
     try:
         lbr_statusdata_node.destroy_node()

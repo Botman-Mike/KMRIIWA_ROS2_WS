@@ -51,12 +51,18 @@ class KmpCommandsNode(Node):
 
         if connection_type == 'TCP':
             self.soc = TCPSocket(ip,port,self.name)
-            # Close socket on shutdown
-            self.add_on_shutdown_callback(self.soc.close)
+            # Register socket close on shutdown, with fallback
+            try:
+                self.add_on_shutdown_callback(self.soc.close)
+            except AttributeError:
+                rclpy.get_default_context().on_shutdown(self.soc.close)
         elif connection_type == 'UDP':
             self.soc = UDPSocket(ip,port,self.name)
-            # Close socket on shutdown
-            self.add_on_shutdown_callback(self.soc.close)
+            # Register socket close on shutdown, with fallback
+            try:
+                self.add_on_shutdown_callback(self.soc.close)
+            except AttributeError:
+                rclpy.get_default_context().on_shutdown(self.soc.close)
         else:
             self.soc = None
             rclpy.shutdown()
@@ -207,6 +213,11 @@ def main(argv=sys.argv[1:]):
     kmp_commands_node = KmpCommandsNode(args.connection,args.robot)
 
     rclpy.spin(kmp_commands_node)
+    # Ensure socket closed before shutdown
+    try:
+        kmp_commands_node.soc.close()
+    except Exception:
+        pass
 
     try:
         kmp_commands_node.destroy_node()
