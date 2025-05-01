@@ -54,8 +54,12 @@ class KmpStatusNode(Node):
 
         if connection_type == 'TCP':
             self.soc = TCPSocket(ip,port,self.name)
+            # On shutdown, stop socket loop and close socket
+            self.add_on_shutdown_callback(self.soc.close)
         elif connection_type == 'UDP':
             self.soc=UDPSocket(ip,port,self.name)
+            # On shutdown, stop socket loop and close socket
+            self.add_on_shutdown_callback(self.soc.close)
         else:
             self.soc=None
 

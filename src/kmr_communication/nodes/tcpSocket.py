@@ -57,6 +57,16 @@ class TCPSocket:
         self.startup_grace_period = 600  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
         self.startup_time = time.time()
 
+        # Setup listening socket once at startup
+        self.listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.listen_socket.bind((self.ip, self.port))
+        self.listen_socket.listen(10)
+        self.listen_socket.settimeout(600)
+
+        # Start server thread as daemon
+        threading.Thread(target=self.connect_to_socket, daemon=True).start()
+
         #Data
         self.odometry = []
         self.laserScanB1 = []
@@ -65,10 +75,10 @@ class TCPSocket:
         self.lbr_statusdata = None
         self.lbr_sensordata = []
 
-        threading.Thread(target=self.connect_to_socket).start()
-
     def close(self):
         print(cl_yellow(f"[DEBUG] close() called for {self.node_name}, isconnected={self.isconnected}, running={self.running}"))
+        # Stop server loop and close sockets
+        self.running = False
         self.isconnected = False
         if self.connection:
             try:
@@ -76,55 +86,38 @@ class TCPSocket:
                 print(cl_yellow(f"[DEBUG] Socket closed for {self.node_name}"))
             except Exception as e:
                 print(cl_red(f"[DEBUG] Exception during socket close: {e}"))
+        # Close listening socket if open
+        if hasattr(self, 'listen_socket'):
+            try:
+                self.listen_socket.close()
+            except Exception:
+                pass
 
     def connect_to_socket(self):
-        """Connect to socket with retry mechanism"""
+        """Accept and handle incoming connections in a loop"""
         attempt = 0
 
         while self.running:
             try:
-                print(cl_cyan(f'Starting up node: {self.node_name}, IP: {self.ip}, Port: {self.port}'))
-                self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                server_address = (self.ip, self.port)
-                
-                # Add socket reuse option to prevent "Address already in use" errors
-                self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                
-                self.tcp.bind(server_address)
-                
-                # Increase backlog queue from default 3 to 10 to handle multiple connection attempts
-                self.tcp.listen(10)
-                
-                # Extend timeout for initial connection - 10 minutes as requested
-                self.tcp.settimeout(600)  
-                
-                print(cl_green(f'Socket bound and listening on {server_address}'))
-                
+                # Wait for incoming client
+                print(cl_cyan(f'Waiting for connections on {self.ip}:{self.port}'))
                 with self.connection_lock:
-                    self.connection, client_address = self.tcp.accept()
-                    
-                    # Increase socket buffer sizes for performance
-                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)
-                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1048576)
-                    
-                    # Disable Nagle's algorithm for lower latency
-                    self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                    
-                    # Use keep-alive to detect connection loss
-                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                    
-                    # TCP keepalive on Linux - more aggressive to detect problems faster
-                    if hasattr(socket, 'TCP_KEEPIDLE'):
-                        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
-                    if hasattr(socket, 'TCP_KEEPINTVL'):
-                        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
-                    if hasattr(socket, 'TCP_KEEPCNT'):
-                        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
-                        
-                    # Set reasonable timeout for socket operations
-                    self.connection.settimeout(600)  # 10 minute operations timeout
-                    self.isconnected = True
-                    self.last_heartbeat = time.time()
+                    self.connection, client_address = self.listen_socket.accept()
+
+                # Increase socket buffer sizes for performance
+                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)
+                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1048576)
+                self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                if hasattr(socket, 'TCP_KEEPIDLE'):
+                    self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
+                if hasattr(socket, 'TCP_KEEPINTVL'):
+                    self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+                if hasattr(socket, 'TCP_KEEPCNT'):
+                    self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
+                self.connection.settimeout(600)  # 10 minute operations timeout
+                self.isconnected = True
+                self.last_heartbeat = time.time()
 
                 print(cl_green(f'Connected to client at {client_address}'))
                 attempt = 0  # Reset attempt counter on successful connection
@@ -197,17 +190,13 @@ class TCPSocket:
                         else:
                             print(cl_yellow(f"Client disconnected - empty data received"))
                             print(cl_yellow(f"[DEBUG] In main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
+                            # Close this client and continue to accept new ones
                             with self.connection_lock:
-                                self.isconnected = False
                                 if self.connection:
-                                    try:
-                                        self.connection.close()
-                                        print(cl_yellow(f"[DEBUG] Socket closed after empty data for {self.node_name}"))
-                                    except Exception as e:
-                                        print(cl_red(f"[DEBUG] Exception during socket close after empty data: {e}"))
-                            # NEW: Log reason for disconnect
+                                    self.connection.close()
+                                self.isconnected = False
                             print(cl_red(f"[DISCONNECT] Reason: Received empty data (peer closed connection) in {self.node_name}"))
-                            break
+                            continue
                             
                     except socket.timeout:
                         continue

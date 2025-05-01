@@ -54,8 +54,12 @@ class KmpOdometryNode(Node):
 
         if connection_type == 'TCP':
             self.soc = TCPSocket(ip,port,self.name)
+            # Close socket on node shutdown
+            self.add_on_shutdown_callback(self.soc.close)
         elif connection_type == 'UDP':
-            self.soc=UDPSocket(ip,port,self.name)
+            self.soc = UDPSocket(ip,port,self.name)
+            # Close socket on node shutdown
+            self.add_on_shutdown_callback(self.soc.close)
         else:
             self.soc=None
 
