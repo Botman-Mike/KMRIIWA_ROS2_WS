@@ -235,18 +235,7 @@ class TCPSocket:
                         time.sleep(1)
                         continue
                         
-            except Exception as e:
-                print(cl_yellow(f"Error receiving data: {e}"))
-                print(cl_yellow(f"[DEBUG] Exception in main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
-                # NEW: Log reason for disconnect
-                print(cl_red(f"[DISCONNECT] Reason: Exception in main loop: {e} in {self.node_name}"))
-                if not self.running:
-                    break
-                    
-                # Don't immediately disconnect on errors
-                print(cl_yellow(f"Will attempt to continue..."))
-                time.sleep(1)
-                continue
+            # ...remaining code for accept loop, no outer generic exception handler
 
     def send(self, cmd):
         try:
