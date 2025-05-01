@@ -159,34 +159,40 @@ class TCPSocket:
                         msg = self.recvmsg()
                         if msg:
                             self.last_heartbeat = time.time()
-                            
-                            # Try to decode as UTF-8, but handle binary data gracefully
+                            # Log the raw message received for debugging
                             try:
-                                data_str = msg.decode('utf-8').strip()
-                                
-                                # Check if this is a heartbeat-only message
-                                if data_str in ["heartbeat", "ping", ""]:
-                                    continue  # Skip processing for heartbeat messages
-                                
-                                # Process the received command
-                                for pack in data_str.split(">"):
-                                    cmd_splt = pack.split()
-                                    if len(cmd_splt) and cmd_splt[0] == 'odometry':
-                                        self.odometry = cmd_splt
-                                    if len(cmd_splt) and cmd_splt[0] == 'laserScan':
-                                        if cmd_splt[2] == '1801':
-                                            self.laserScanB1.append(cmd_splt)
-                                        elif cmd_splt[2] == '1802':
-                                            self.laserScanB4.append(cmd_splt)
-                                    if len(cmd_splt) and cmd_splt[0] == 'kmp_statusdata':
-                                        self.kmp_statusdata = cmd_splt
-                                    if len(cmd_splt) and cmd_splt[0] == 'lbr_statusdata':
-                                        self.lbr_statusdata = cmd_splt
-                                    if len(cmd_splt) and cmd_splt[0] == 'lbr_sensordata':
-                                        self.lbr_sensordata.append(cmd_splt)
-                                
+                                data_str = msg.decode('utf-8', errors='replace').strip()
+                                print(cl_green(f"[RECEIVED MESSAGE] {self.node_name}: '{data_str}'"))
+                                # Try to decode as UTF-8, but handle binary data gracefully
+                                try:
+                                    data_str = msg.decode('utf-8').strip()
+                                    
+                                    # Check if this is a heartbeat-only message
+                                    if data_str in ["heartbeat", "ping", ""]:
+                                        continue  # Skip processing for heartbeat messages
+                                    
+                                    # Process the received command
+                                    for pack in data_str.split(">"):
+                                        cmd_splt = pack.split()
+                                        if len(cmd_splt) and cmd_splt[0] == 'odometry':
+                                            self.odometry = cmd_splt
+                                        if len(cmd_splt) and cmd_splt[0] == 'laserScan':
+                                            if cmd_splt[2] == '1801':
+                                                self.laserScanB1.append(cmd_splt)
+                                            elif cmd_splt[2] == '1802':
+                                                self.laserScanB4.append(cmd_splt)
+                                        if len(cmd_splt) and cmd_splt[0] == 'kmp_statusdata':
+                                            self.kmp_statusdata = cmd_splt
+                                        if len(cmd_splt) and cmd_splt[0] == 'lbr_statusdata':
+                                            self.lbr_statusdata = cmd_splt
+                                        if len(cmd_splt) and cmd_splt[0] == 'lbr_sensordata':
+                                            self.lbr_sensordata.append(cmd_splt)
+                                    
+                                except UnicodeDecodeError:
+                                    # If it can't be decoded as text, just use it as a heartbeat
+                                    pass
                             except UnicodeDecodeError:
-                                # If it can't be decoded as text, just use it as a heartbeat
+                                print(cl_red(f"[RECEIVED MESSAGE] {self.node_name}: <binary data>"))
                                 pass
                         else:
                             print(cl_yellow(f"Client disconnected - empty data received"))
