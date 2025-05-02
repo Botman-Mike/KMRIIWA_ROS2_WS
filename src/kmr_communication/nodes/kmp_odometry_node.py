@@ -54,12 +54,18 @@ class KmpOdometryNode(Node):
 
         if connection_type == 'TCP':
             self.soc = TCPSocket(ip,port,self.name)
-            # Close socket on node shutdown
-            self.add_on_shutdown_callback(self.soc.close)
+            # Register socket close on shutdown, with fallback if method unavailable
+            try:
+                self.add_on_shutdown_callback(self.soc.close)
+            except AttributeError:
+                rclpy.get_default_context().on_shutdown(self.soc.close)
         elif connection_type == 'UDP':
             self.soc = UDPSocket(ip,port,self.name)
-            # Close socket on node shutdown
-            self.add_on_shutdown_callback(self.soc.close)
+            # Register socket close on shutdown, with fallback if method unavailable
+            try:
+                self.add_on_shutdown_callback(self.soc.close)
+            except AttributeError:
+                rclpy.get_default_context().on_shutdown(self.soc.close)
         else:
             self.soc=None
 
@@ -154,6 +160,12 @@ def main(argv=sys.argv[1:]):
     odometry_node = KmpOdometryNode(args.connection,args.robot)
 
     rclpy.spin(odometry_node)
+    # Ensure socket closed before shutdown
+    try:
+        odometry_node.soc.close()
+    except Exception:
+        pass
+
     try:
         odometry_node.destroy_node()
         rclpy.shutdown()

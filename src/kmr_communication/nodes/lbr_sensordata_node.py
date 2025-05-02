@@ -61,12 +61,18 @@ class LbrSensordataNode(Node):
 
         if connection_type == 'TCP':
             self.soc = TCPSocket(ip, port,self.name)
-            # On shutdown, stop socket loop and close socket
-            self.add_on_shutdown_callback(self.soc.close)
+            # Register socket close on shutdown, with fallback
+            try:
+                self.add_on_shutdown_callback(self.soc.close)
+            except AttributeError:
+                rclpy.get_default_context().on_shutdown(self.soc.close)
         elif connection_type == 'UDP':
             self.soc = UDPSocket(ip, port,self.name)
-            # On shutdown, stop socket loop and close socket
-            self.add_on_shutdown_callback(self.soc.close)
+            # Register socket close on shutdown, with fallback
+            try:
+                self.add_on_shutdown_callback(self.soc.close)
+            except AttributeError:
+                rclpy.get_default_context().on_shutdown(self.soc.close)
         else:
             self.soc = None
 

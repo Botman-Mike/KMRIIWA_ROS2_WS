@@ -98,145 +98,143 @@ class TCPSocket:
         attempt = 0
 
         while self.running:
-            try:
-                # Wait for incoming client
-                print(cl_cyan(f'Waiting for connections on {self.ip}:{self.port}'))
-                with self.connection_lock:
-                    self.connection, client_address = self.listen_socket.accept()
-            except Exception as e:
-                print(cl_red(f"Error while accepting connection: {e}"))
-                continue
+            # Wait for incoming client
+            print(cl_cyan(f'Waiting for connections on {self.ip}:{self.port}'))
+            with self.connection_lock:
+                self.connection, client_address = self.listen_socket.accept()
 
-                # Increase socket buffer sizes for performance
-                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)
-                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1048576)
-                self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                if hasattr(socket, 'TCP_KEEPIDLE'):
-                    self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
-                if hasattr(socket, 'TCP_KEEPINTVL'):
-                    self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
-                if hasattr(socket, 'TCP_KEEPCNT'):
-                    self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
-                self.connection.settimeout(600)  # 10 minute operations timeout
-                self.isconnected = True
-                self.last_heartbeat = time.time()
+            # Increase socket buffer sizes for performance
+            self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)
+            self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1048576)
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            if hasattr(socket, 'TCP_KEEPIDLE'):
+                self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
+            if hasattr(socket, 'TCP_KEEPINTVL'):
+                self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+            if hasattr(socket, 'TCP_KEEPCNT'):
+                self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
+            self.connection.settimeout(600)  # 10 minute operations timeout
+            self.isconnected = True
+            self.last_heartbeat = time.time()
 
-                print(cl_green(f'Connected to client at {client_address}'))
-                attempt = 0  # Reset attempt counter on successful connection
-                time.sleep(1)
+            print(cl_green(f'Connected to client at {client_address}'))
+            attempt = 0  # Reset attempt counter on successful connection
+            time.sleep(1)
 
-                # Add heartbeat sending thread
-                def send_heartbeat():
-                    last_heartbeat_send = 0
-                    while self.isconnected and self.running:
-                        try:
-                            current_time = time.time()
-                            # Only send a heartbeat every 5 seconds to avoid flooding
-                            if current_time - last_heartbeat_send >= 5:
-                                with self.connection_lock:
-                                    if self.isconnected and self.connection:
-                                        # Format according to protocol: 10-digit length prefix + "heartbeat"
-                                        msg = "heartbeat"
-                                        length = str(len(msg)).zfill(10)  # 10-digit length prefix
-                                        heartbeat_msg = length + " " + msg
-                                        self.connection.sendall(heartbeat_msg.encode("UTF-8"))
-                                        last_heartbeat_send = current_time
-                        except Exception as e:
-                            print(cl_yellow(f"Heartbeat send error: {e}"))
-                        time.sleep(1)  # Check every second but only send every 5
-                
-                # Start heartbeat thread
-                threading.Thread(target=send_heartbeat, daemon=True).start()
-
-                # Main data processing loop
+            # Add heartbeat sending thread
+            def send_heartbeat():
+                last_heartbeat_send = 0
                 while self.isconnected and self.running:
                     try:
-                        msg = self.recvmsg()
-                        if msg:
-                            self.last_heartbeat = time.time()
-                            # Log the raw message received for debugging
-                            try:
-                                data_str = msg.decode('utf-8', errors='replace').strip()
-                                print(cl_green(f"[RECEIVED MESSAGE] {self.node_name}: '{data_str}'"))
-                                # Try to decode as UTF-8, but handle binary data gracefully
-                                try:
-                                    data_str = msg.decode('utf-8').strip()
-                                    
-                                    # Check if this is a heartbeat-only message
-                                    if data_str in ["heartbeat", "ping", ""]:
-                                        continue  # Skip processing for heartbeat messages
-                                    
-                                    # Process the received command
-                                    for pack in data_str.split(">"):
-                                        cmd_splt = pack.split()
-                                        if len(cmd_splt) and cmd_splt[0] == 'odometry':
-                                            self.odometry = cmd_splt
-                                        if len(cmd_splt) and cmd_splt[0] == 'laserScan':
-                                            if cmd_splt[2] == '1801':
-                                                self.laserScanB1.append(cmd_splt)
-                                            elif cmd_splt[2] == '1802':
-                                                self.laserScanB4.append(cmd_splt)
-                                        if len(cmd_splt) and cmd_splt[0] == 'kmp_statusdata':
-                                            self.kmp_statusdata = cmd_splt
-                                        if len(cmd_splt) and cmd_splt[0] == 'lbr_statusdata':
-                                            self.lbr_statusdata = cmd_splt
-                                        if len(cmd_splt) and cmd_splt[0] == 'lbr_sensordata':
-                                            self.lbr_sensordata.append(cmd_splt)
-                                    
-                                except UnicodeDecodeError:
-                                    # If it can't be decoded as text, just use it as a heartbeat
-                                    pass
-                            except UnicodeDecodeError:
-                                print(cl_red(f"[RECEIVED MESSAGE] {self.node_name}: <binary data>"))
-                                pass
-                        else:
-                            print(cl_yellow(f"Client disconnected - empty data received"))
-                            print(cl_yellow(f"[DEBUG] In main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
-                            # Close this client and continue to accept new ones
+                        current_time = time.time()
+                        # Only send a heartbeat every 5 seconds to avoid flooding
+                        if current_time - last_heartbeat_send >= 5:
                             with self.connection_lock:
-                                if self.connection:
-                                    self.connection.close()
-                                self.isconnected = False
-                            print(cl_red(f"[DISCONNECT] Reason: Received empty data (peer closed connection) in {self.node_name}"))
-                            continue
-                            
-                    except socket.timeout:
-                        continue
-                    # Handle socket errors specifically before other exceptions
-                    except socket.error as e:
-                        err_type = type(e).__name__
-                        print(cl_yellow(f'Connection error: {err_type}: {e}'))
-                        attempt += 1
-                        if e.errno == 111:
-                            print(cl_yellow(f"  → The robot may not be listening on this port yet"))
-                        elif e.errno == 110:
-                            print(cl_yellow(f"  → Network route exists but robot not responding"))
-                        print(cl_red(f"[DISCONNECT] Reason: socket.error during connect: {e} in {self.node_name}"))
-                        if attempt >= self.max_reconnection_attempts:
-                            print(cl_red(f'Maximum reconnection attempts reached. Waiting longer...'))
-                            time.sleep(self.reconnection_delay * 5)
-                            attempt = 0
-                        else:
-                            time.sleep(self.reconnection_delay)
-                        try:
-                            if self.tcp:
-                                self.tcp.close()
-                        except:
-                            pass
-                        continue
+                                if self.isconnected and self.connection:
+                                    # Format according to protocol: 10-digit length prefix + "heartbeat"
+                                    msg = "heartbeat"
+                                    length = str(len(msg)).zfill(10)  # 10-digit length prefix
+                                    heartbeat_msg = length + " " + msg
+                                    self.connection.sendall(heartbeat_msg.encode("UTF-8"))
+                                    last_heartbeat_send = current_time
                     except Exception as e:
-                        print(cl_yellow(f"Error receiving data: {e}"))
-                        print(cl_yellow(f"[DEBUG] Exception in main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
-                        # NEW: Log reason for disconnect
-                        print(cl_red(f"[DISCONNECT] Reason: Exception in main loop: {e} in {self.node_name}"))
-                        if not self.running:
-                            break
-                            
-                        # Don't immediately disconnect on errors
-                        print(cl_yellow(f"Will attempt to continue..."))
-                        time.sleep(1)
+                        print(cl_yellow(f"Heartbeat send error: {e}"))
+                    time.sleep(1)  # Check every second but only send every 5
+            
+            # Start heartbeat thread
+            threading.Thread(target=send_heartbeat, daemon=True).start()
+
+            # Main data processing loop
+            while self.isconnected and self.running:
+                try:
+                    msg = self.recvmsg()
+                    if msg:
+                        self.last_heartbeat = time.time()
+                        # Log the raw message received for debugging
+                        try:
+                            data_str = msg.decode('utf-8', errors='replace').strip()
+                            print(cl_green(f"[RECEIVED MESSAGE] {self.node_name}: '{data_str}'"))
+                            # Try to decode as UTF-8, but handle binary data gracefully
+                            try:
+                                data_str = msg.decode('utf-8').strip()
+                                
+                                # Check if this is a heartbeat-only message
+                                if data_str in ["heartbeat", "ping", ""]:
+                                    continue  # Skip processing for heartbeat messages
+                                
+                                # Process the received command
+                                for pack in data_str.split(">"):
+                                    cmd_splt = pack.split()
+                                    if len(cmd_splt) and cmd_splt[0] == 'odometry':
+                                        self.odometry = cmd_splt
+                                    if len(cmd_splt) and cmd_splt[0] == 'laserScan':
+                                        if cmd_splt[2] == '1801':
+                                            self.laserScanB1.append(cmd_splt)
+                                        elif cmd_splt[2] == '1802':
+                                            self.laserScanB4.append(cmd_splt)
+                                    if len(cmd_splt) and cmd_splt[0] == 'kmp_statusdata':
+                                        self.kmp_statusdata = cmd_splt
+                                    if len(cmd_splt) and cmd_splt[0] == 'lbr_statusdata':
+                                        self.lbr_statusdata = cmd_splt
+                                    if len(cmd_splt) and cmd_splt[0] == 'lbr_sensordata':
+                                        self.lbr_sensordata.append(cmd_splt)
+                                
+                            except UnicodeDecodeError:
+                                # If it can't be decoded as text, just use it as a heartbeat
+                                pass
+                        except UnicodeDecodeError:
+                            print(cl_red(f"[RECEIVED MESSAGE] {self.node_name}: <binary data>"))
+                            pass
+                    else:
+                        print(cl_yellow(f"Client disconnected - empty data received"))
+                        print(cl_yellow(f"[DEBUG] In main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
+                        # Close this client and continue to accept new ones
+                        with self.connection_lock:
+                            if self.connection:
+                                self.connection.close()
+                            self.isconnected = False
+                        print(cl_red(f"[DISCONNECT] Reason: Received empty data (peer closed connection) in {self.node_name}"))
                         continue
+                        
+                except socket.timeout:
+                    continue
+                # Handle socket errors specifically before other exceptions
+                except socket.error as e:
+                    err_type = type(e).__name__
+                    print(cl_yellow(f'Connection error: {err_type}: {e}'))
+                    attempt += 1
+                    if e.errno == 111:
+                        print(cl_yellow(f"  → The robot may not be listening on this port yet"))
+                    elif e.errno == 110:
+                        print(cl_yellow(f"  → Network route exists but robot not responding"))
+                    print(cl_red(f"[DISCONNECT] Reason: socket.error during connect: {e} in {self.node_name}"))
+                    if attempt >= self.max_reconnection_attempts:
+                        print(cl_red(f'Maximum reconnection attempts reached. Waiting longer...'))
+                        time.sleep(self.reconnection_delay * 5)
+                        attempt = 0
+                    else:
+                        time.sleep(self.reconnection_delay)
+                    try:
+                        if self.tcp:
+                            self.tcp.close()
+                    except:
+                        pass
+                    continue
+                except Exception as e:
+                    print(cl_yellow(f"Error receiving data: {e}"))
+                    print(cl_yellow(f"[DEBUG] Exception in main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
+                    # NEW: Log reason for disconnect
+                    print(cl_red(f"[DISCONNECT] Reason: Exception in main loop: {e} in {self.node_name}"))
+                    # Merged accept-error logging
+                    print(cl_red(f"Error while accepting connection: {e}"))
+                    if not self.running:
+                        break
+                        
+                    # Don't immediately disconnect on errors
+                    print(cl_yellow(f"Will attempt to continue..."))
+                    time.sleep(1)
+                    continue
                         
             # ...remaining code for accept loop, no outer generic exception handler
 
