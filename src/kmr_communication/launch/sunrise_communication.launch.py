@@ -15,22 +15,42 @@
 
 import os
 import shutil  # Import shutil to check for executables
+from launch.actions import SetEnvironmentVariable as _SetEnv
+
+# redirect all ROS2 logs (launch + nodes) into workspace-level log directory
+_workspace_root = os.path.abspath(os.getcwd())
+_ros_log_dir = os.path.join(_workspace_root, 'log', 'ros2_logs')
+_set_ros_log_dir = _SetEnv('ROS_LOG_DIR', _ros_log_dir)
+
+# force RCUtils file‐handler to use ISO8601 wall‐clock timestamps
+os.environ['RCUTILS_LOGGING_TIMESTAMP_FORMAT'] = '%Y-%m-%dT%H:%M:%S.%fZ'
+os.environ['RCUTILS_LOGGING_OUTPUT_FORMAT'] = '[{time}] [{severity}] [{name}]: {message}'
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
+from launch.actions import SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 import launch_ros.actions
 
 
 def generate_launch_description():
+    # enforce ISO 8601 wall-clock timestamp and output format for ROS2 logs
+    timestamp_fmt = '%Y-%m-%dT%H:%M:%S.%fZ'
+    set_timestamp_fmt = SetEnvironmentVariable(
+        'RCUTILS_CONSOLE_TIMESTAMP_FORMAT', timestamp_fmt
+    )
+    time_format = '[{time}] [{severity}] [{name}]: {message}'
+    set_time_fmt = SetEnvironmentVariable(
+        'RCUTILS_CONSOLE_OUTPUT_FORMAT', time_format
+    )
 
     # Check if taskset is available and set prefix accordingly
     taskset_path = shutil.which('taskset')
     launch_prefix = ''
-    if taskset_path:
+    if (taskset_path):
         print(f"Taskset found at {taskset_path}, applying P-core pinning (0-7).")
         # Note the trailing space in the prefix
         launch_prefix = 'taskset -c 0-7 ' 
@@ -57,21 +77,24 @@ def generate_launch_description():
             'bringup.yaml'))
 
     return LaunchDescription([
+        # send all logs into workspace log folder
+        _set_ros_log_dir,
+        # apply timestamp and output format before other actions
+        set_timestamp_fmt,
+        set_time_fmt,
+        # launch arguments for parameters and connection settings
         DeclareLaunchArgument(
             'param_dir',
             default_value=param_dir,
             description='Full path to parameter file to load'),
-            
         DeclareLaunchArgument(
             'robot_name',
             default_value='KMR1',
             description='Robot name (KMR1/KMR2)'),
-            
         DeclareLaunchArgument(
             'bind_ip',
             default_value='0.0.0.0',
             description='IP address to bind server sockets to (0.0.0.0 = all interfaces)'),
-            
         DeclareLaunchArgument(
             'robot_ip',
             default_value='172.31.1.10',
@@ -81,7 +104,7 @@ def generate_launch_description():
         launch_ros.actions.Node(
             package="tf2_ros",
             executable="static_transform_publisher",
-            output="screen",
+            output="log",
             arguments=['0','0','0','0','0','0','laser_B4_link','scan_2'],
            ),
 
@@ -96,7 +119,7 @@ def generate_launch_description():
            package="kmr_communication",
            executable="kmp_statusdata_node.py",
            name="kmp_statusdata_node",
-           output="screen",
+           output="log",
            emulate_tty=True,
            prefix=launch_prefix,  # Add prefix here
            arguments=['-c', connection_type_TCP, '-ro', robot_name],
@@ -106,7 +129,7 @@ def generate_launch_description():
             package="kmr_communication",
             executable="kmp_commands_node.py",
             name="kmp_commands_node",
-            output="screen",
+            output="log",
             emulate_tty=True,
             prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_TCP,'-ro', robot_name],
@@ -116,7 +139,7 @@ def generate_launch_description():
            package="kmr_communication",
            executable="kmp_laserscan_node.py",
            name="kmp_laserscan_node",
-           output="screen",
+           output="log",
            emulate_tty=True,
            prefix=launch_prefix,  # Add prefix here
            arguments=['-c', connection_type_UDP, '-ro', robot_name],
@@ -126,7 +149,7 @@ def generate_launch_description():
            package="kmr_communication",
            executable="kmp_odometry_node.py",
            name="kmp_odometry_node",
-           output="screen",
+           output="log",
            emulate_tty=True,
            prefix=launch_prefix,  # Add prefix here
            arguments=['-c', connection_type_UDP,'-ro', robot_name],
@@ -137,7 +160,7 @@ def generate_launch_description():
             package="kmr_communication",
             executable="lbr_commands_node.py",
             name="lbr_commands_node",
-            output="screen",
+            output="log",
             emulate_tty=True,
             prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_TCP, '-ro', robot_name],
@@ -147,7 +170,7 @@ def generate_launch_description():
             package="kmr_communication",
             executable="lbr_statusdata_node.py",
             name="lbr_statusdata_node",
-            output="screen",
+            output="log",
             emulate_tty=True,
             prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_TCP, '-ro', robot_name],
@@ -157,7 +180,7 @@ def generate_launch_description():
             package="kmr_communication",
             executable="lbr_sensordata_node.py",
             name="lbr_sensordata_node",
-            output="screen",
+            output="log",
             emulate_tty=True,
             prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_UDP, '-ro', robot_name],

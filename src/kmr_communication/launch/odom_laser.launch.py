@@ -19,6 +19,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
+from launch.actions import SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 import launch_ros.actions
@@ -28,6 +29,11 @@ import argparse
 
 
 def generate_launch_description(argv=sys.argv[1:]):
+    # enforce ISO wall-clock time in log output
+    time_format = '{time} [{severity}] [{name}]: {message}'
+    set_time_fmt = SetEnvironmentVariable(
+        'RCUTILS_CONSOLE_OUTPUT_FORMAT', time_format
+    )
 
     connection_type_TCP='TCP'
     connection_type_UDP = 'UDP'
@@ -35,7 +41,8 @@ def generate_launch_description(argv=sys.argv[1:]):
 
 
     return LaunchDescription([
-
+        set_time_fmt,
+        # nodes for laser and odometry
         launch_ros.actions.Node(
             package="kmr_communication",
             executable="kmp_laserscan_node.py",  # Changed from node_executable
