@@ -38,8 +38,10 @@ class KmpCommandsNode(Node):
     def __init__(self,connection_type,robot):
         super().__init__('kmp_commands_node')
         self.name = 'kmp_commands_node'
+        # enforce port mapping and log listener
         self.declare_parameter('port', 30002)
         port = int(self.get_parameter('port').value)
+        self.get_logger().info(f"{self.get_name()} listening on port {port}")
         if robot == 'KMR1':
             self.declare_parameter('KMR1/ip', '172.31.1.206')
             ip = str(self.get_parameter('KMR1/ip').value)

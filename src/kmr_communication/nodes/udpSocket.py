@@ -20,8 +20,7 @@ import time
 import os
 import rclpy
 import socket
-
-
+from rclpy.logging import get_logger
 
 
 def cl_black(msge): return '\033[30m' + msge + '\033[0m'
@@ -43,6 +42,8 @@ def cl_lightcyan(msge): return '\033[96m' + msge + '\033[0m'
 
 class UDPSocket:
     def __init__(self,ip,port,node):
+        # ROS2 logger
+        self.logger = get_logger(node)
         self.BUFFER_SIZE = 4096
         self.isconnected = False
         self.node_name = node
@@ -98,7 +99,7 @@ class UDPSocket:
         
         while self.running:
             try:
-                print(cl_cyan(f'Starting up node: {self.node_name}, IP: {self.ip}, Port: {self.port}'))
+                self.logger.info(f'Starting up node: {self.node_name}, IP: {self.ip}, Port: {self.port}')
                 self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 self.udp.settimeout(600.0)  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
                 self.udp.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)  # Increased buffer
@@ -106,15 +107,15 @@ class UDPSocket:
                 try:
                     self.udp.bind((self.ip, self.port))
                     self.connection_state['bound'] = True
-                    print(cl_green(f"Successfully bound to port {self.port}"))
+                    self.logger.info(f"Successfully bound to port {self.port}")
                 except socket.error as e:
-                    print(cl_red(f"Error binding to port {self.port}: {e}"))
+                    self.logger.error(f"Error binding to port {self.port}: {e}")
                     self.connection_state['bound'] = False
                     raise e
                 
                 # Wait for initial data to establish connection
                 connection_wait_start = time.time()
-                while not self.isconnected and (time.time() - connection_wait_start) < 600:  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
+                while not self.isconnected and (time.time() - connection_wait_start) < 600:
                     try:
                         data, client_addr = self.udp.recvfrom(self.BUFFER_SIZE)
                         if data:  # If we get any data, we consider ourselves connected
@@ -126,13 +127,13 @@ class UDPSocket:
                     except socket.timeout:
                         continue
                     except Exception as e:
-                        print(cl_red(f"Error during initial connection: {e}"))
+                        self.logger.error(f"Error during initial connection: {e}")
                         break
                 
                 if not self.isconnected:
                     raise Exception("Timed out waiting for initial connection")
                     
-                print(cl_green(f'Connected to client at {self.client_address}'))
+                self.logger.info(f'Connected to client at {self.client_address}')
                 # Send an initial hello message to confirm connection
                 self.udp.sendto("hello KUKA".encode('utf-8'), self.client_address)
                 attempt = 0  # Reset attempt counter on successful connection
@@ -160,7 +161,7 @@ class UDPSocket:
                             self.connection_state['bytes_received'] += len(data)
                             
                             # Log the size of incoming data for debugging
-                            print(f"Received UDP data of size {len(data)} bytes from {self.node_name}")
+                            self.logger.debug(f"Received UDP data of size {len(data)} bytes from {self.node_name}")
                             
                             # Try to decode as UTF-8, but handle binary data gracefully
                             try:
@@ -192,16 +193,16 @@ class UDPSocket:
                                         elif cmd_splt[0] == 'lbr_sensordata':
                                             self.lbr_sensordata.append(cmd_splt)
                                 except Exception as e:
-                                    print(cl_yellow(f"Error processing command: {e}"))
+                                    self.logger.warn(f"Error processing command: {e}")
                                     # Don't break the connection for parsing errors
                             except UnicodeDecodeError:
-                                # This is binary data, just use it as a heartbeat
+                                # binary data => heartbeat skip
                                 pass
                     except socket.timeout:
                         # Socket timeout is not an error, just continue
                         continue
                     except Exception as e:
-                        print(cl_yellow(f"Error receiving data: {e}"))
+                        self.logger.warn(f"Error receiving data: {e}")
                         with self.connection_lock:
                             self.isconnected = False
                         break
@@ -209,15 +210,15 @@ class UDPSocket:
             except Exception as e:
                 attempt += 1
                 err_type = type(e).__name__
-                print(cl_red(f'Connection attempt {attempt} failed: {err_type}: {e}'))
+                self.logger.error(f'Connection attempt {attempt} failed: {err_type}: {e}')
                 # Add more specific debugging for common errors
                 if isinstance(e, socket.error):
                     if e.errno == 111:  # Connection refused
-                        print(cl_yellow(f"  → The robot may not be listening on this port yet"))
+                        self.logger.warn(f"  → The robot may not be listening on this port yet")
                     elif e.errno == 110:  # Connection timeout
-                        print(cl_yellow(f"  → Network route exists but robot not responding"))
+                        self.logger.warn(f"  → Network route exists but robot not responding")
                 if attempt >= self.max_reconnection_attempts:
-                    print(cl_red(f'Maximum reconnection attempts reached. Waiting longer...'))
+                    self.logger.error(f'Maximum reconnection attempts reached. Waiting longer...')
                     time.sleep(self.reconnection_delay * 5)
                     attempt = 0  # Reset counter but keep trying
                 else:
@@ -230,18 +231,18 @@ class UDPSocket:
                     pass
                 
             # If we get here, connection has been lost, try to clean up
-            print(cl_yellow(f"Connection lost, cleaning up..."))
+            self.logger.warn(f"Connection lost, cleaning up...")
             with self.connection_lock:
                 try:
                     if self.udp:
                         self.udp.close()
                 except Exception as ex:
-                    print(cl_red(f"Error during cleanup: {ex}"))
+                    self.logger.error(f"Error during cleanup: {ex}")
             
             if not self.running:
                 break
                 
-            print(cl_yellow(f"Attempting to reconnect in {self.reconnection_delay} seconds..."))
+            self.logger.info(f"Attempting to reconnect in {self.reconnection_delay} seconds...")
             time.sleep(self.reconnection_delay)
 
     # Each send command runs as a thread. May need to control the maximum running time (valid time to send a command).
@@ -249,7 +250,7 @@ class UDPSocket:
         try:
             thread.start_new_thread(self.__send, (cmd,))
         except:
-            print(cl_red('Error: ') + "sending message thread failed")
+            self.logger.error('Error: sending message thread failed')
 
     def __send(self, cmd):
         encoded_cmd = cmd.encode() # Encode to bytes

@@ -20,6 +20,7 @@ import time
 import os
 import rclpy
 import socket
+from rclpy.logging import get_logger
 
 
 def cl_black(msge): return '\033[30m' + msge + '\033[0m'
@@ -41,6 +42,8 @@ def cl_lightcyan(msge): return '\033[96m' + msge + '\033[0m'
 
 class TCPSocket:
     def __init__(self, ip, port,node):
+        # ROS2 logger for this socket
+        self.logger = get_logger(node)
         self.BUFFER_SIZE = 4000
         self.isconnected = False
         self.node_name = node
@@ -62,6 +65,8 @@ class TCPSocket:
         self.listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.listen_socket.bind((self.ip, self.port))
         self.listen_socket.listen(10)
+        # log that we’re listening with TCP_NODELAY disabled until accept
+        self.logger.info(f"{self.node_name}|port {self.port}|TCP_NODELAY=1|listening")
         self.listen_socket.settimeout(600)
 
         # Start server thread as daemon
@@ -76,16 +81,16 @@ class TCPSocket:
         self.lbr_sensordata = []
 
     def close(self):
-        print(cl_yellow(f"[DEBUG] close() called for {self.node_name}, isconnected={self.isconnected}, running={self.running}"))
+        self.logger.info(f"[DEBUG] close() called for {self.node_name}, isconnected={self.isconnected}, running={self.running}")
         # Stop server loop and close sockets
         self.running = False
         self.isconnected = False
         if self.connection:
             try:
                 self.connection.close()
-                print(cl_yellow(f"[DEBUG] Socket closed for {self.node_name}"))
+                self.logger.info(f"[DEBUG] Socket closed for {self.node_name}")
             except Exception as e:
-                print(cl_red(f"[DEBUG] Exception during socket close: {e}"))
+                self.logger.error(f"[DEBUG] Exception during socket close: {e}")
         # Close listening socket if open
         if hasattr(self, 'listen_socket'):
             try:
@@ -99,9 +104,12 @@ class TCPSocket:
 
         while self.running:
             # Wait for incoming client
-            print(cl_cyan(f'Waiting for connections on {self.ip}:{self.port}'))
+            self.logger.info(f"{self.node_name}|port {self.port} waiting for connections on {self.ip}:{self.port}")
             with self.connection_lock:
                 self.connection, client_address = self.listen_socket.accept()
+            # disable Nagle’s algorithm
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.logger.info(f"{self.node_name}|port {self.port}|TCP_NODELAY=1|accepted connection from {client_address}")
 
             # Increase socket buffer sizes for performance
             self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)
@@ -118,7 +126,7 @@ class TCPSocket:
             self.isconnected = True
             self.last_heartbeat = time.time()
 
-            print(cl_green(f'Connected to client at {client_address}'))
+            self.logger.info(f'Connected to client at {client_address}')
             attempt = 0  # Reset attempt counter on successful connection
             time.sleep(1)
 
@@ -139,7 +147,7 @@ class TCPSocket:
                                     self.connection.sendall(heartbeat_msg.encode("UTF-8"))
                                     last_heartbeat_send = current_time
                     except Exception as e:
-                        print(cl_yellow(f"Heartbeat send error: {e}"))
+                        self.logger.warn(f"Heartbeat send error: {e}")
                     time.sleep(1)  # Check every second but only send every 5
             
             # Start heartbeat thread
@@ -154,7 +162,7 @@ class TCPSocket:
                         # Log the raw message received for debugging
                         try:
                             data_str = msg.decode('utf-8', errors='replace').strip()
-                            print(cl_green(f"[RECEIVED MESSAGE] {self.node_name}: '{data_str}'"))
+                            self.logger.info(f"[RECEIVED MESSAGE] {self.node_name}: '{data_str}'")
                             # Try to decode as UTF-8, but handle binary data gracefully
                             try:
                                 data_str = msg.decode('utf-8').strip()
@@ -184,17 +192,17 @@ class TCPSocket:
                                 # If it can't be decoded as text, just use it as a heartbeat
                                 pass
                         except UnicodeDecodeError:
-                            print(cl_red(f"[RECEIVED MESSAGE] {self.node_name}: <binary data>"))
+                            self.logger.error(f"[RECEIVED MESSAGE] {self.node_name}: <binary data>")
                             pass
                     else:
-                        print(cl_yellow(f"Client disconnected - empty data received"))
-                        print(cl_yellow(f"[DEBUG] In main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
+                        self.logger.warn(f"Client disconnected - empty data received")
+                        self.logger.warn(f"[DEBUG] In main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}")
                         # Close this client and continue to accept new ones
                         with self.connection_lock:
                             if self.connection:
                                 self.connection.close()
                             self.isconnected = False
-                        print(cl_red(f"[DISCONNECT] Reason: Received empty data (peer closed connection) in {self.node_name}"))
+                        self.logger.error(f"[DISCONNECT] Reason: Received empty data (peer closed connection) in {self.node_name}")
                         continue
                         
                 except socket.timeout:
@@ -202,15 +210,15 @@ class TCPSocket:
                 # Handle socket errors specifically before other exceptions
                 except socket.error as e:
                     err_type = type(e).__name__
-                    print(cl_yellow(f'Connection error: {err_type}: {e}'))
+                    self.logger.warn(f'Connection error: {err_type}: {e}')
                     attempt += 1
                     if e.errno == 111:
-                        print(cl_yellow(f"  → The robot may not be listening on this port yet"))
+                        self.logger.warn(f"  → The robot may not be listening on this port yet")
                     elif e.errno == 110:
-                        print(cl_yellow(f"  → Network route exists but robot not responding"))
-                    print(cl_red(f"[DISCONNECT] Reason: socket.error during connect: {e} in {self.node_name}"))
+                        self.logger.warn(f"  → Network route exists but robot not responding")
+                    self.logger.error(f"[DISCONNECT] Reason: socket.error during connect: {e} in {self.node_name}")
                     if attempt >= self.max_reconnection_attempts:
-                        print(cl_red(f'Maximum reconnection attempts reached. Waiting longer...'))
+                        self.logger.error(f'Maximum reconnection attempts reached. Waiting longer...')
                         time.sleep(self.reconnection_delay * 5)
                         attempt = 0
                     else:
@@ -222,17 +230,17 @@ class TCPSocket:
                         pass
                     continue
                 except Exception as e:
-                    print(cl_yellow(f"Error receiving data: {e}"))
-                    print(cl_yellow(f"[DEBUG] Exception in main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}"))
+                    self.logger.warn(f"Error receiving data: {e}")
+                    self.logger.warn(f"[DEBUG] Exception in main loop: isconnected={self.isconnected}, running={self.running}, connection={self.connection}")
                     # NEW: Log reason for disconnect
-                    print(cl_red(f"[DISCONNECT] Reason: Exception in main loop: {e} in {self.node_name}"))
+                    self.logger.error(f"[DISCONNECT] Reason: Exception in main loop: {e} in {self.node_name}")
                     # Merged accept-error logging
-                    print(cl_red(f"Error while accepting connection: {e}"))
+                    self.logger.error(f"Error while accepting connection: {e}")
                     if not self.running:
                         break
                         
                     # Don't immediately disconnect on errors
-                    print(cl_yellow(f"Will attempt to continue..."))
+                    self.logger.warn(f"Will attempt to continue...")
                     time.sleep(1)
                     continue
                         
@@ -245,32 +253,24 @@ class TCPSocket:
             msg_with_prefix = length + " " + msg
             self.connection.sendall(msg_with_prefix.encode("UTF-8"))
         except:
-            print(cl_red('Error: ') + "sending message thread failed")
+            self.logger.error('Error: sending message thread failed')
 
     def recvmsg(self):
-        header_len = 11  # 10 for length, 1 for space
-        byt_len = b""
-        while len(byt_len) < header_len:
-            chunk = self.connection.recv(header_len - len(byt_len))
+        # strict 10-byte length-prefix framing
+        header = self.connection.recv(10)
+        assert len(header) == 10, f"Header length {len(header)} != 10"
+        length = int(header.decode('utf-8'))
+        self.logger.debug(f"{self.node_name}|port {self.port} received header: '{header.decode()}'")
+        data = bytearray(length)
+        view = memoryview(data)
+        idx = 0
+        while idx < length:
+            chunk = self.connection.recv(length - idx)
             if not chunk:
-                print(cl_red(f"[DISCONNECT] Reason: Connection closed while reading header in {self.node_name}"))
+                self.logger.error(f"{self.node_name}|port {self.port} connection closed during data read")
+                self.isconnected = False
                 return b""
-            byt_len += chunk
-        length_str = byt_len[:10].decode("utf-8")
-        print(cl_cyan(f"[DEBUG] Received header: '{length_str}' (raw: {byt_len[:10]})"))
-        try:
-            msglength = int(length_str)
-        except ValueError:
-            print(cl_red(f"Invalid message length header: {length_str}"))
-            print(cl_red(f"[DISCONNECT] Reason: Invalid message length header '{length_str}' in {self.node_name}"))
-            return b""
-        # skip the space (already read in byt_len[10])
-        msg = b""
-        while len(msg) < msglength:
-            chunk = self.connection.recv(msglength - len(msg))
-            if not chunk:
-                print(cl_red(f"[DISCONNECT] Reason: Connection closed while reading message body in {self.node_name}"))
-                break
-            msg += chunk
-        print(cl_cyan(f"[DEBUG] Received message body: '{msg[:50]}' (length: {len(msg)})"))
-        return msg
+            view[idx:idx + len(chunk)] = chunk
+            idx += len(chunk)
+        self.logger.debug(f"{self.node_name}|port {self.port} read {length} bytes of data")
+        return bytes(data)

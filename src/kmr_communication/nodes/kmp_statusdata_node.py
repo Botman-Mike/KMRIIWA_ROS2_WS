@@ -39,9 +39,9 @@ class KmpStatusNode(Node):
     def __init__(self,connection_type,robot):
         super().__init__('kmp_statusdata_node')
         self.name='kmp_statusdata_node'
-        self.last_status_timestamp = 0
         self.declare_parameter('port', 30001)
         port = int(self.get_parameter('port').value)
+        self.get_logger().info(f"{self.get_name()} listening on port {port}")
         if robot == 'KMR1':
             self.declare_parameter('KMR1/ip', '172.31.1.206')
             ip = str(self.get_parameter('KMR1/ip').value)

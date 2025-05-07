@@ -44,12 +44,15 @@ class LbrCommandsNode(Node):
     def __init__(self,connection_type,robot):
         super().__init__('lbr_commands_node')
         self.name = 'lbr_commands_node'
+        # enforce port mapping and log listener port
         self.declare_parameter('port', 30005)
+        port = int(self.get_parameter('port').value)
+        self.get_logger().info(f"{self.get_name()} listening on port {port}")
+        # existing reconnect/safety parameters
         self.declare_parameter('reconnect_interval', 5.0)  # Seconds between reconnection attempts
         self.declare_parameter('command_timeout', 600.0)  # INCREASED TO 10 MINUTES FOR TROUBLESHOOTING
         self.declare_parameter('respect_safety', True)  # Whether to respect safety signals
         
-        port = int(self.get_parameter('port').value)
         if robot == 'KMR1':
             self.declare_parameter('KMR1/ip', '172.31.1.206')
             ip = str(self.get_parameter('KMR1/ip').value)

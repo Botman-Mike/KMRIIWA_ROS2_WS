@@ -104,7 +104,7 @@ def generate_launch_description():
         launch_ros.actions.Node(
             package="tf2_ros",
             executable="static_transform_publisher",
-            output="log",
+            output="screen",
             arguments=['0','0','0','0','0','0','laser_B4_link','scan_2'],
            ),
 
@@ -119,7 +119,7 @@ def generate_launch_description():
            package="kmr_communication",
            executable="kmp_statusdata_node.py",
            name="kmp_statusdata_node",
-           output="log",
+           output="screen",
            emulate_tty=True,
            prefix=launch_prefix,  # Add prefix here
            arguments=['-c', connection_type_TCP, '-ro', robot_name],
@@ -129,7 +129,7 @@ def generate_launch_description():
             package="kmr_communication",
             executable="kmp_commands_node.py",
             name="kmp_commands_node",
-            output="log",
+            output="screen",
             emulate_tty=True,
             prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_TCP,'-ro', robot_name],
@@ -139,7 +139,7 @@ def generate_launch_description():
            package="kmr_communication",
            executable="kmp_laserscan_node.py",
            name="kmp_laserscan_node",
-           output="log",
+           output="screen",
            emulate_tty=True,
            prefix=launch_prefix,  # Add prefix here
            arguments=['-c', connection_type_UDP, '-ro', robot_name],
@@ -149,7 +149,7 @@ def generate_launch_description():
            package="kmr_communication",
            executable="kmp_odometry_node.py",
            name="kmp_odometry_node",
-           output="log",
+           output="screen",
            emulate_tty=True,
            prefix=launch_prefix,  # Add prefix here
            arguments=['-c', connection_type_UDP,'-ro', robot_name],
@@ -160,7 +160,7 @@ def generate_launch_description():
             package="kmr_communication",
             executable="lbr_commands_node.py",
             name="lbr_commands_node",
-            output="log",
+            output="screen",
             emulate_tty=True,
             prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_TCP, '-ro', robot_name],
@@ -170,7 +170,7 @@ def generate_launch_description():
             package="kmr_communication",
             executable="lbr_statusdata_node.py",
             name="lbr_statusdata_node",
-            output="log",
+            output="screen",
             emulate_tty=True,
             prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_TCP, '-ro', robot_name],
@@ -180,7 +180,7 @@ def generate_launch_description():
             package="kmr_communication",
             executable="lbr_sensordata_node.py",
             name="lbr_sensordata_node",
-            output="log",
+            output="screen",
             emulate_tty=True,
             prefix=launch_prefix,  # Add prefix here
             arguments=['-c', connection_type_UDP, '-ro', robot_name],
