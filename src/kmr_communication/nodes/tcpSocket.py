@@ -148,7 +148,12 @@ class TCPSocket:
                                     last_heartbeat_send = current_time
                     except Exception as e:
                         self.logger.warn(f"Heartbeat send error: {e}")
-                    time.sleep(1)  # Check every second but only send every 5
+                        try:
+                            self.connection.close()
+                        except Exception:
+                            pass
+                        self.isconnected = False
+                        return
             
             # Start heartbeat thread
             threading.Thread(target=send_heartbeat, daemon=True).start()
@@ -224,10 +229,11 @@ class TCPSocket:
                     else:
                         time.sleep(self.reconnection_delay)
                     try:
-                        if self.tcp:
-                            self.tcp.close()
-                    except:
+                        if self.connection:
+                            self.connection.close()
+                    except Exception:
                         pass
+                    self.isconnected = False
                     continue
                 except Exception as e:
                     self.logger.warn(f"Error receiving data: {e}")
@@ -241,6 +247,11 @@ class TCPSocket:
                         
                     # Don't immediately disconnect on errors
                     self.logger.warn(f"Will attempt to continue...")
+                    try:
+                        self.connection.close()
+                    except:
+                        pass
+                    self.isconnected = False
                     time.sleep(1)
                     continue
                         
@@ -256,11 +267,39 @@ class TCPSocket:
             self.logger.error('Error: sending message thread failed')
 
     def recvmsg(self):
-        # strict 10-byte length-prefix framing
+        # consolidated header read through recvmsg
+        # read fixed 10-digit length prefix and one-byte space delimiter
         header = self.connection.recv(10)
-        assert len(header) == 10, f"Header length {len(header)} != 10"
-        length = int(header.decode('utf-8'))
-        self.logger.debug(f"{self.node_name}|port {self.port} received header: '{header.decode()}'")
+        if not header or len(header) < 10:
+            self.logger.error(f"{self.node_name}|port {self.port} incomplete header, closing socket")
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+            self.isconnected = False
+            return b""
+        # consume and verify space delimiter
+        delim = self.connection.recv(1)
+        if not delim or delim != b' ':
+            self.logger.error(f"{self.node_name}|port {self.port} bad delimiter '{delim}', closing socket")
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+            self.isconnected = False
+            return b""
+        try:
+            length = int(header.decode('utf-8'))
+        except ValueError:
+            self.logger.error(f"{self.node_name}|port {self.port} invalid header '{header}'")
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+            self.isconnected = False
+            return b""
+        self.logger.debug(f"{self.node_name}|port {self.port} received header: '{header.decode()}' length={length}")
+        # read exact data length
         data = bytearray(length)
         view = memoryview(data)
         idx = 0
@@ -268,9 +307,13 @@ class TCPSocket:
             chunk = self.connection.recv(length - idx)
             if not chunk:
                 self.logger.error(f"{self.node_name}|port {self.port} connection closed during data read")
+                try:
+                    self.connection.close()
+                except Exception:
+                    pass
                 self.isconnected = False
                 return b""
-            view[idx:idx + len(chunk)] = chunk
+            view[idx:idx+len(chunk)] = chunk
             idx += len(chunk)
         self.logger.debug(f"{self.node_name}|port {self.port} read {length} bytes of data")
         return bytes(data)
