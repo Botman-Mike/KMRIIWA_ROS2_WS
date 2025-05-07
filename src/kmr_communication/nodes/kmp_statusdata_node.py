@@ -39,6 +39,7 @@ class KmpStatusNode(Node):
     def __init__(self,connection_type,robot):
         super().__init__('kmp_statusdata_node')
         self.name='kmp_statusdata_node'
+        self.last_status_timestamp = None
         self.declare_parameter('port', 30001)
         port = int(self.get_parameter('port').value)
         self.get_logger().info(f"{self.get_name()} listening on port {port}")
@@ -81,43 +82,50 @@ class KmpStatusNode(Node):
         if self.soc and self.soc.isconnected and self.soc.kmp_statusdata:
             self.status_callback(self.pub_kmp_statusdata, self.soc.kmp_statusdata)
 
-    def status_callback(self,publisher,data):
-        if data != None:
+    def status_callback(self, publisher, data):
+        if data is None:
+            return
+        # split into elements and validate
+        status_elements = data[1].split(",")
+        if len(status_elements) < 2:
+            self.get_logger().warn(f"{self.get_name()}: malformed statusdata: {status_elements}")
+            return
+        timestamp = status_elements[1]
+        # process only on new timestamp
+        if self.last_status_timestamp is None or timestamp != self.last_status_timestamp:
+            self.last_status_timestamp = timestamp
             msg = KmpStatusdata()
             msg.header.stamp = self.get_clock().now().to_msg()
-            status_elements = data[1].split(",")
-            if (status_elements[1] != self.last_status_timestamp):
-                self.last_status_timestamp = status_elements[1]
-                for i in range(2, len(status_elements)):
-                    split = status_elements[i].split(":")
-                    if(split[0]=="OperationMode"):
-                        msg.operation_mode = split[1]
-                    elif (split[0] == "ReadyToMove"):
-                        if (split[1] == "true"):
-                            msg.ready_to_move = True
-                        else:
-                            msg.ready_to_move = False
-                    elif (split[0] == "WarningField"):
-                        if (split[1] == "true"):
-                            msg.warning_field_clear = True
-                        else:
-                            msg.warning_field_clear = False
-                    elif (split[0] == "ProtectionField"):
-                        if (split[1] == "true"):
-                            msg.protection_field_clear = True
-                        else:
-                            msg.protection_field_clear = False
-                    elif (split[0] == "isKMPmoving"):
-                        if (split[1] == "true"):
-                            msg.is_kmp_moving = True
-                        else:
-                            msg.is_kmp_moving = False
-                    elif (split[0] == "KMPsafetyStop"):
-                        if (split[1] == "true"):
-                            msg.kmp_safetystop = True
-                        else:
-                            msg.kmp_safetystop = False
-                publisher.publish(msg)
+            for i in range(2, len(status_elements)):
+                split = status_elements[i].split(":")
+                if(split[0]=="OperationMode"):
+                    msg.operation_mode = split[1]
+                elif (split[0] == "ReadyToMove"):
+                    if (split[1] == "true"):
+                        msg.ready_to_move = True
+                    else:
+                        msg.ready_to_move = False
+                elif (split[0] == "WarningField"):
+                    if (split[1] == "true"):
+                        msg.warning_field_clear = True
+                    else:
+                        msg.warning_field_clear = False
+                elif (split[0] == "ProtectionField"):
+                    if (split[1] == "true"):
+                        msg.protection_field_clear = True
+                    else:
+                        msg.protection_field_clear = False
+                elif (split[0] == "isKMPmoving"):
+                    if (split[1] == "true"):
+                        msg.is_kmp_moving = True
+                    else:
+                        msg.is_kmp_moving = False
+                elif (split[0] == "KMPsafetyStop"):
+                    if (split[1] == "true"):
+                        msg.kmp_safetystop = True
+                    else:
+                        msg.kmp_safetystop = False
+            publisher.publish(msg)
 
     def publish_connection_status(self):
         msg = Bool()

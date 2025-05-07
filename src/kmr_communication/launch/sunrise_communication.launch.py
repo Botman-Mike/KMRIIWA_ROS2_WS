@@ -105,7 +105,7 @@ def generate_launch_description():
             package="tf2_ros",
             executable="static_transform_publisher",
             output="screen",
-            arguments=['0','0','0','0','0','0','laser_B4_link','scan_2'],
+            arguments=['0','0','0','0','0','0','1','laser_B4_link','scan_2'],
            ),
 
 #        launch_ros.actions.Node(

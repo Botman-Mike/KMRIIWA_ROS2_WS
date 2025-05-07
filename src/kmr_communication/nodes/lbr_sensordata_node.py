@@ -46,8 +46,8 @@ def cl_red(msge): return '\033[31m' + msge + '\033[0m'
 
 class LbrSensordataNode(Node):
     def __init__(self,connection_type,robot):
-        super().__init__('lbr_sensordate_node')
-        self.name='lbr_sensordate_node'
+        super().__init__('lbr_sensordata_node')
+        self.name='lbr_sensordata_node'
         self.declare_parameter('port', 30007)
         port = int(self.get_parameter('port').value)
         if robot == 'KMR1':
