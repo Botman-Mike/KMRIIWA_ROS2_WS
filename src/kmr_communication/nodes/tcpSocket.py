@@ -267,10 +267,9 @@ class TCPSocket:
             self.logger.error('Error: sending message thread failed')
 
     def recvmsg(self):
-        # consolidated header read through recvmsg
-        # read fixed 10-digit length prefix and one-byte space delimiter
-        header = self.connection.recv(10)
-        if not header or len(header) < 10:
+        # read combined 10-digit header plus space delimiter in one go
+        header_raw = self.connection.recv(11)
+        if not header_raw or len(header_raw) < 11:
             self.logger.error(f"{self.node_name}|port {self.port} incomplete header, closing socket")
             try:
                 self.connection.close()
@@ -278,10 +277,9 @@ class TCPSocket:
                 pass
             self.isconnected = False
             return b""
-        # consume and verify space delimiter
-        delim = self.connection.recv(1)
-        if not delim or delim != b' ':
-            self.logger.error(f"{self.node_name}|port {self.port} bad delimiter '{delim}', closing socket")
+        header = header_raw[:10]
+        if header_raw[10:11] != b' ':
+            self.logger.error(f"{self.node_name}|port {self.port} missing space delimiter, closing socket")
             try:
                 self.connection.close()
             except Exception:
