@@ -269,6 +269,11 @@ class TCPSocket:
     def recvmsg(self):
         # synchronize on 10-digit length header + space (sliding window)
         buf = bytearray()
+        # track resync thresholds
+        scanned = 0
+        start_time = time.time()
+        max_resync_bytes = 2048  # bytes threshold for header re-sync
+        max_resync_time = 5.0  # seconds
         # read until we have at least 11 bytes
         while len(buf) < 11:
             chunk = self.connection.recv(11 - len(buf))
@@ -279,6 +284,15 @@ class TCPSocket:
             buf.extend(chunk)
         # slide window until header matches: 10 digits + space
         while not (all(48 <= b <= 57 for b in buf[0:10]) and buf[10] == 0x20):
+            # check thresholds for reset
+            if scanned > max_resync_bytes or time.time() - start_time > max_resync_time:
+                self.logger.warn(f"{self.node_name}|port {self.port} header sync exceeded ({scanned} bytes, {time.time()-start_time:.1f}s), resetting connection")
+                try:
+                    self.connection.close()
+                except:
+                    pass
+                self.isconnected = False
+                return b""
             # drop one byte and read one more
             buf.pop(0)
             new = self.connection.recv(1)
@@ -286,6 +300,7 @@ class TCPSocket:
                 self.isconnected = False
                 return b""
             buf.extend(new)
+            scanned += 1
         # extract header length
         header = bytes(buf[0:10])
         try:

@@ -5,4 +5,24 @@ Compute its UTF-8 byte length, format it as a zero-padded 10-digit ASCII string.
 Send [length][space][payload+CRLF] over the socket.
 For example:
 
-Also, implement your receiver to do a sliding-window search for that 10-digit header+space, read exactly N bytes, verify it ends with CRLF, and if not drop one byte and re-sync.”
+Also, implement your receiver to do a sliding-window search for that 10-digit header+space, read exactly N bytes, verify it ends with CRLF, and if not drop one byte and re-sync.
+
+- To avoid endless resync loops, add a maximum scan threshold (e.g. maxResyncBytes = 10000) or timeout (e.g. 5 seconds). If you exceed either without finding a valid header, gracefully close and reopen the socket, then resume framing.
+
+For example:
+```java
+// sliding-window header sync with reset
+byte[] buf = new byte[11];
+int scanned = 0;
+long startTime = System.currentTimeMillis();
+while (true) {
+  // fill buf until 11 bytes
+  // ...existing sliding-window code...
+  scanned++;
+  if (scanned > maxResyncBytes || System.currentTimeMillis() - startTime > 5000) {
+    socket.close();
+    socket = reconnect();  // your reconnect logic here
+    return;  // restart framing on new connection
+  }
+  // check for valid header+space and break when found
+}
