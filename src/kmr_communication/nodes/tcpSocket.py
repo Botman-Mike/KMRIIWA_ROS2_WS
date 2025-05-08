@@ -98,6 +98,14 @@ class TCPSocket:
             except Exception:
                 pass
 
+    def reconnect(self):
+        """Close the current connection and mark socket as disconnected to trigger a new accept."""
+        try:
+            self.connection.close()
+        except Exception:
+            pass
+        self.isconnected = False
+
     def connect_to_socket(self):
         """Accept and handle incoming connections in a loop"""
         attempt = 0
@@ -267,50 +275,73 @@ class TCPSocket:
             self.logger.error('Error: sending message thread failed')
 
     def recvmsg(self):
-        # read and validate header; resync by flushing to CRLF on malformed header
+        # keep trying to read full frames until we get a valid one
         while True:
-            header_raw = self.connection.recv(11)
-            if not header_raw or len(header_raw) < 11:
-                self.isconnected = False
-                return b""
-            # valid header starts with 10 ASCII digits then space
-            if all(48 <= b <= 57 for b in header_raw[:10]) and header_raw[10] == 0x20:
-                header = header_raw[:10]
-                break
-            # malformed: flush until next CRLF to re-align stream
-            self.logger.warn(f"{self.node_name}|port {self.port} bad header, flushing to next CRLF for resync")
-            tail = bytearray()
+            # loop until a valid 10-digit header+space or reset on too many bad bytes
             while True:
-                b = self.connection.recv(1)
-                if not b:
+                # accumulate exactly 11 bytes for header
+                header_raw = b''
+                while len(header_raw) < 11:
+                    chunk = self.connection.recv(11 - len(header_raw))
+                    if not chunk:
+                        self.isconnected = False
+                        return b''
+                    header_raw += chunk
+                # validate header: first 10 bytes ASCII digits, 11th is space
+                if all(48 <= b <= 57 for b in header_raw[:10]) and header_raw[10] == 0x20:
+                    message_len = int(header_raw[:10])
+                    # ensure low-latency and keepalive for this connection
+                    try:
+                        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                        self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                        if hasattr(socket, 'TCP_KEEPIDLE'):
+                            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
+                        if hasattr(socket, 'TCP_KEEPINTVL'):
+                            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+                        if hasattr(socket, 'TCP_KEEPCNT'):
+                            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 6)
+                    except Exception:
+                        pass
+                    break
+                # malformed header: flush until next CRLF with guard
+                self.logger.warn(f"{self.node_name}|port {self.port} bad header, flushing to next CRLF for resync")
+                prev = b''
+                discard = 0
+                while True:
+                    b = self.connection.recv(1)
+                    if not b:
+                        self.isconnected = False
+                        return b''
+                    discard += 1
+                    if prev == b'\r' and b == b'\n':
+                        break
+                    prev = b
+                    if discard > 1024:
+                        # too many bad bytes—reset connection
+                        self.reconnect()
+                        return b''
+            # read exact data length
+            data = bytearray(message_len)
+            view = memoryview(data)
+            idx = 0
+            while idx < message_len:
+                chunk = self.connection.recv(message_len - idx)
+                if not chunk:
+                    self.logger.error(f"{self.node_name}|port {self.port} connection closed during data read")
+                    try:
+                        self.connection.close()
+                    except Exception:
+                        pass
                     self.isconnected = False
                     return b""
-                tail.extend(b)
-                if tail[-2:] == b"\r\n":
-                    break
-        # parse length prefix
-        length = int(header.decode('utf-8'))
-        self.logger.debug(f"{self.node_name}|port {self.port} received header: '{header.decode()}' length={length}")
-        # read exact data length
-        data = bytearray(length)
-        view = memoryview(data)
-        idx = 0
-        while idx < length:
-            chunk = self.connection.recv(length - idx)
-            if not chunk:
-                self.logger.error(f"{self.node_name}|port {self.port} connection closed during data read")
-                try:
-                    self.connection.close()
-                except Exception:
-                    pass
-                self.isconnected = False
-                return b""
-            view[idx:idx+len(chunk)] = chunk
-            idx += len(chunk)
-        # verify frame ends with CRLF to confirm correct sync
-        data_bytes = bytes(data)
-        if not data_bytes.endswith(b"\r\n"):
-            self.logger.warn(f"{self.node_name}|port {self.port} frame tail invalid, resyncing")
-            return self.recvmsg()
-        self.logger.debug(f"{self.node_name}|port {self.port} read {length} bytes of data")
-        return data_bytes
+                view[idx:idx+len(chunk)] = chunk
+                idx += len(chunk)
+            # verify frame ends with CRLF to confirm correct sync
+            data_bytes = bytes(data)
+            if not data_bytes.endswith(b"\r\n"):
+                self.logger.warn(f"{self.node_name}|port {self.port} frame tail invalid, resyncing")
+                # abandon this frame, loop back to outer retry
+                continue
+            # successful frame, return payload
+            self.logger.debug(f"{self.node_name}|port {self.port} read {message_len} bytes of data")
+            return data_bytes
