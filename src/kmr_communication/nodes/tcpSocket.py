@@ -267,50 +267,29 @@ class TCPSocket:
             self.logger.error('Error: sending message thread failed')
 
     def recvmsg(self):
-        # synchronize on 10-digit length header + space (sliding window)
-        buf = bytearray()
-        # track resync thresholds
-        scanned = 0
-        start_time = time.time()
-        max_resync_bytes = 2048  # bytes threshold for header re-sync
-        max_resync_time = 5.0  # seconds
-        # read until we have at least 11 bytes
-        while len(buf) < 11:
-            chunk = self.connection.recv(11 - len(buf))
-            if not chunk:
-                # connection closed or no data
+        # read and validate header; resync by flushing to CRLF on malformed header
+        while True:
+            header_raw = self.connection.recv(11)
+            if not header_raw or len(header_raw) < 11:
                 self.isconnected = False
                 return b""
-            buf.extend(chunk)
-        # slide window until header matches: 10 digits + space
-        while not (all(48 <= b <= 57 for b in buf[0:10]) and buf[10] == 0x20):
-            # check thresholds for reset
-            if scanned > max_resync_bytes or time.time() - start_time > max_resync_time:
-                self.logger.warn(f"{self.node_name}|port {self.port} header sync exceeded ({scanned} bytes, {time.time()-start_time:.1f}s), resetting connection")
-                try:
-                    self.connection.close()
-                except:
-                    pass
-                self.isconnected = False
-                return b""
-            # drop one byte and read one more
-            buf.pop(0)
-            new = self.connection.recv(1)
-            if not new:
-                self.isconnected = False
-                return b""
-            buf.extend(new)
-            scanned += 1
-        # extract header length
-        header = bytes(buf[0:10])
-        try:
-            length = int(header.decode('utf-8'))
-        except ValueError:
-            # invalid header, abort
-            self.logger.error(f"{self.node_name}|port {self.port} invalid header '{header}'")
-            self.connection.close()
-            self.isconnected = False
-            return b""
+            # valid header starts with 10 ASCII digits then space
+            if all(48 <= b <= 57 for b in header_raw[:10]) and header_raw[10] == 0x20:
+                header = header_raw[:10]
+                break
+            # malformed: flush until next CRLF to re-align stream
+            self.logger.warn(f"{self.node_name}|port {self.port} bad header, flushing to next CRLF for resync")
+            tail = bytearray()
+            while True:
+                b = self.connection.recv(1)
+                if not b:
+                    self.isconnected = False
+                    return b""
+                tail.extend(b)
+                if tail[-2:] == b"\r\n":
+                    break
+        # parse length prefix
+        length = int(header.decode('utf-8'))
         self.logger.debug(f"{self.node_name}|port {self.port} received header: '{header.decode()}' length={length}")
         # read exact data length
         data = bytearray(length)

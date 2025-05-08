@@ -3,26 +3,40 @@ Please update our Java TCP client so that every outgoing message is framed exact
 Append \r\n to the payload string.
 Compute its UTF-8 byte length, format it as a zero-padded 10-digit ASCII string.
 Send [length][space][payload+CRLF] over the socket.
-For example:
 
-Also, implement your receiver to do a sliding-window search for that 10-digit header+space, read exactly N bytes, verify it ends with CRLF, and if not drop one byte and re-sync.
+Also, implement your receiver using the CRLF-flush sync approach:
 
-- To avoid endless resync loops, add a maximum scan threshold (e.g. maxResyncBytes = 10000) or timeout (e.g. 5 seconds). If you exceed either without finding a valid header, gracefully close and reopen the socket, then resume framing.
+ 1. Read exactly 11 bytes (10-digit length + space).
+ 2. If the header is invalid, read and discard bytes until you see the sequence "\r\n", then restart step 1.
+
+Be aware: if your payload may include embedded CRLF, this flush method could misinterpret an internal CRLF as a frame delimiter. In that case, use a sliding-window scan instead.
 
 For example:
 ```java
-// sliding-window header sync with reset
-byte[] buf = new byte[11];
-int scanned = 0;
-long startTime = System.currentTimeMillis();
+// CRLF-flush header sync
+int length;
 while (true) {
-  // fill buf until 11 bytes
-  // ...existing sliding-window code...
-  scanned++;
-  if (scanned > maxResyncBytes || System.currentTimeMillis() - startTime > 5000) {
-    socket.close();
-    socket = reconnect();  // your reconnect logic here
-    return;  // restart framing on new connection
-  }
-  // check for valid header+space and break when found
+    byte[] headerRaw = new byte[11];
+    inputStream.readFully(headerRaw);
+    // check for 10 ASCII digits then space
+    boolean valid = true;
+    for (int i = 0; i < 10; i++) {
+        if (headerRaw[i] < '0' || headerRaw[i] > '9') { valid = false; break; }
+    }
+    if (valid && headerRaw[10] == ' ') {
+        length = Integer.parseInt(new String(headerRaw, 0, 10, StandardCharsets.UTF_8));
+        break;
+    }
+    // invalid header: flush until CRLF
+    int prev = -1;
+    int curr;
+    do {
+        curr = inputStream.read();
+    } while (prev != '\r' || curr != '\n');
+    prev = curr;
 }
+// now read exactly length bytes of payload+CRLF
+byte[] payload = new byte[length];
+inputStream.readFully(payload);
+// payload should end with CRLF
+```
