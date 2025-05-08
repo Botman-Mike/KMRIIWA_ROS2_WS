@@ -267,33 +267,33 @@ class TCPSocket:
             self.logger.error('Error: sending message thread failed')
 
     def recvmsg(self):
-        # read combined 10-digit header plus space delimiter in one go
-        header_raw = self.connection.recv(11)
-        if not header_raw or len(header_raw) < 11:
-            self.logger.error(f"{self.node_name}|port {self.port} incomplete header, closing socket")
-            try:
-                self.connection.close()
-            except Exception:
-                pass
-            self.isconnected = False
-            return b""
-        header = header_raw[:10]
-        if header_raw[10:11] != b' ':
-            self.logger.error(f"{self.node_name}|port {self.port} missing space delimiter, closing socket")
-            try:
-                self.connection.close()
-            except Exception:
-                pass
-            self.isconnected = False
-            return b""
+        # synchronize on 10-digit length header + space (sliding window)
+        buf = bytearray()
+        # read until we have at least 11 bytes
+        while len(buf) < 11:
+            chunk = self.connection.recv(11 - len(buf))
+            if not chunk:
+                # connection closed or no data
+                self.isconnected = False
+                return b""
+            buf.extend(chunk)
+        # slide window until header matches: 10 digits + space
+        while not (all(48 <= b <= 57 for b in buf[0:10]) and buf[10] == 0x20):
+            # drop one byte and read one more
+            buf.pop(0)
+            new = self.connection.recv(1)
+            if not new:
+                self.isconnected = False
+                return b""
+            buf.extend(new)
+        # extract header length
+        header = bytes(buf[0:10])
         try:
             length = int(header.decode('utf-8'))
         except ValueError:
+            # invalid header, abort
             self.logger.error(f"{self.node_name}|port {self.port} invalid header '{header}'")
-            try:
-                self.connection.close()
-            except Exception:
-                pass
+            self.connection.close()
             self.isconnected = False
             return b""
         self.logger.debug(f"{self.node_name}|port {self.port} received header: '{header.decode()}' length={length}")
@@ -313,5 +313,10 @@ class TCPSocket:
                 return b""
             view[idx:idx+len(chunk)] = chunk
             idx += len(chunk)
+        # verify frame ends with CRLF to confirm correct sync
+        data_bytes = bytes(data)
+        if not data_bytes.endswith(b"\r\n"):
+            self.logger.warn(f"{self.node_name}|port {self.port} frame tail invalid, resyncing")
+            return self.recvmsg()
         self.logger.debug(f"{self.node_name}|port {self.port} read {length} bytes of data")
-        return bytes(data)
+        return data_bytes
